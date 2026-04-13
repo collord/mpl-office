@@ -7,8 +7,8 @@ from io import StringIO
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from . import ConvertOptions, convert_svg_to_drawingml
-from ._inject import append_to_sptree
+from . import ConvertOptions, convert_svg_to_drawingml_with_images
+from ._inject import append_to_sptree_with_images
 
 # Public re-exports
 __all__ = [
@@ -76,8 +76,8 @@ def svg_to_slide(
         offset_x_emu=left,
         offset_y_emu=top,
     )
-    xml = convert_svg_to_drawingml(svg, opts)
-    return append_to_sptree(slide, xml)
+    xml, images = convert_svg_to_drawingml_with_images(svg, opts)
+    return append_to_sptree_with_images(slide, xml, images)
 
 
 def fig_to_slide(

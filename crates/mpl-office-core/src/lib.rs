@@ -24,6 +24,7 @@ pub mod path;
 pub mod style;
 pub mod transform;
 
+pub use emit::EmittedImage;
 pub use error::{Error, Result};
 
 /// Options controlling the SVG → DrawingML conversion.
@@ -60,10 +61,33 @@ impl Default for ConvertOptions {
 /// Convert an SVG string to one or more DrawingML shape XML fragments.
 ///
 /// Returns the concatenated XML — caller is responsible for wrapping/
-/// inserting it into an OOXML document.
+/// inserting it into an OOXML document. Any embedded `<image>` elements
+/// are silently dropped; if the SVG contains images you want preserved,
+/// use [`convert_svg_to_drawingml_with_images`] instead.
 pub fn convert_svg_to_drawingml(svg: &str, options: &ConvertOptions) -> Result<String> {
+    let (xml, _images) = convert_svg_to_drawingml_with_images(svg, options)?;
+    Ok(xml)
+}
+
+/// Convert an SVG string and also return any raster images found inside.
+///
+/// Each entry in the returned image list carries a **sentinel** string
+/// that appears in the XML as `r:embed="{sentinel}"` — the caller is
+/// expected to register `bytes` as an image part in the destination
+/// OOXML document, obtain a real relationship id, and rewrite every
+/// occurrence of the sentinel in the XML to that id.
+///
+/// Images found in SVG `<image xlink:href="data:image/png;base64,...">`
+/// URIs are decoded automatically. External file references are
+/// currently dropped (the core crate has no filesystem access).
+pub fn convert_svg_to_drawingml_with_images(
+    svg: &str,
+    options: &ConvertOptions,
+) -> Result<(String, Vec<EmittedImage>)> {
     let document = parse::parse_svg(svg)?;
     let normalized = ir::normalize_document(document);
     let ctx = emit::EmitContext::from_options(&normalized, options);
-    Ok(emit::emit_document(&normalized, &ctx))
+    let xml = emit::emit_document(&normalized, &ctx);
+    let images = ctx.images.into_inner();
+    Ok((xml, images))
 }

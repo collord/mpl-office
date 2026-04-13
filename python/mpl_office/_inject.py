@@ -7,7 +7,8 @@ parse them inside a wrapper element that declares the namespaces.
 """
 from __future__ import annotations
 
-from typing import List
+from io import BytesIO
+from typing import Iterable, List, Sequence, Tuple
 
 from lxml import etree
 
@@ -55,3 +56,58 @@ def append_to_sptree(slide, xml: str) -> List[etree._Element]:
     for el in elements:
         sp_tree.append(el)
     return elements
+
+
+ImageTuple = Tuple[str, bytes, str]
+"""One entry returned by ``convert_svg_to_drawingml_with_images``:
+``(sentinel, image_bytes, format)``."""
+
+
+def register_images_on_slide(
+    slide, images: Sequence[ImageTuple]
+) -> dict[str, str]:
+    """Register each image as an OOXML image part on the given slide.
+
+    Returns a mapping from the Rust core's sentinel id to the real
+    relationship id (``rId``) that ``python-pptx`` allocated. Duplicate
+    image bytes are deduplicated by ``python-pptx``'s image part cache
+    automatically — two sentinels may therefore map to the same ``rId``.
+    """
+    sentinel_to_rid: dict[str, str] = {}
+    for sentinel, data, _format in images:
+        _image_part, rid = slide.part.get_or_add_image_part(BytesIO(data))
+        sentinel_to_rid[sentinel] = rid
+    return sentinel_to_rid
+
+
+def rewrite_sentinels(xml: str, mapping: dict[str, str]) -> str:
+    """Replace each ``r:embed="{sentinel}"`` with the real relationship id.
+
+    The Rust emitter writes sentinels like ``__mpl_office_img_0__`` in
+    `r:embed` attributes. We rewrite them by literal string replacement
+    — the sentinels are designed to be unique and never clash with any
+    other XML content.
+    """
+    for sentinel, rid in mapping.items():
+        needle = f'r:embed="{sentinel}"'
+        replacement = f'r:embed="{rid}"'
+        xml = xml.replace(needle, replacement)
+    return xml
+
+
+def append_to_sptree_with_images(
+    slide, xml: str, images: Sequence[ImageTuple]
+) -> List[etree._Element]:
+    """Inject DrawingML shapes *and* embedded images into a slide.
+
+    This is the image-aware counterpart to :func:`append_to_sptree`:
+
+    1. Each image blob is registered as an image part on ``slide`` via
+       ``python-pptx``, producing a real relationship id.
+    2. The sentinel rIds in the XML are rewritten to the real ones.
+    3. The resulting XML is parsed and appended to ``slide.shapes._spTree``.
+    """
+    if images:
+        mapping = register_images_on_slide(slide, images)
+        xml = rewrite_sentinels(xml, mapping)
+    return append_to_sptree(slide, xml)

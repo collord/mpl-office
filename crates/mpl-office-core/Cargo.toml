@@ -9,5 +9,5 @@ description = "SVG to DrawingML converter core (pure Rust)"
 
 [dependencies]
 quick-xml.workspace = true
-kurbo.workspace = true
 thiserror.workspace = true
+base64.workspace = true

@@ -83,6 +83,20 @@ def build():
                  width=Inches(10), height=Inches(6))
     plt.close(fig)
 
+    # Slide 5: imshow heatmap + vector axes/labels — vector text over a
+    # native embedded PNG, courtesy of our <image> support.
+    rng = np.random.default_rng(42)
+    fig, ax = plt.subplots(figsize=(8, 6))
+    data = rng.standard_normal((40, 40))
+    im = ax.imshow(data, cmap="viridis", interpolation="bilinear")
+    ax.set_title("Heatmap (raster data, vector chrome)")
+    ax.set_xlabel("column")
+    ax.set_ylabel("row")
+    fig.colorbar(im, ax=ax, label="value")
+    fig_to_slide(fig, _slide(prs), left=Inches(2.5), top=Inches(0.75),
+                 width=Inches(8), height=Inches(6))
+    plt.close(fig)
+
     out = Path(__file__).with_name("demo.pptx")
     prs.save(out)
     print(f"wrote {out}")

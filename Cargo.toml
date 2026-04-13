@@ -14,5 +14,5 @@ repository = "https://github.com/dma/mpl-office"
 
 [workspace.dependencies]
 quick-xml = "0.36"
-kurbo = "0.11"
 thiserror = "1"
+base64 = "0.22"

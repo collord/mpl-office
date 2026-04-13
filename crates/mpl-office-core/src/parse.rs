@@ -13,8 +13,8 @@ use quick_xml::Reader;
 
 use crate::error::{Error, Result};
 use crate::ir::{
-    ClipPath, DefEntry, GradientStop, IrDocument, LinearGradient, Node, NodeKind, TextNode,
-    TextRun,
+    ClipPath, DefEntry, GradientStop, ImageData, IrDocument, LinearGradient, Node, NodeKind,
+    TextNode, TextRun,
 };
 use crate::path::parse_and_normalize;
 use crate::style::{parse_length, parse_style_decl, style_from_attrs, Style};
@@ -429,18 +429,23 @@ fn build_element_node(frame: &StackFrame, css: &HashMap<String, Style>) -> Resul
         "polyline" => NodeKind::Polyline {
             points: parse_points(frame.attrs.get("points").unwrap_or("")),
         },
-        "image" => NodeKind::Image {
-            href: frame
+        "image" => {
+            let href = frame
                 .attrs
                 .get("href")
                 .or_else(|| frame.attrs.get("xlink:href"))
                 .unwrap_or("")
-                .to_string(),
-            x: frame.attrs.get_f64_or("x", 0.0),
-            y: frame.attrs.get_f64_or("y", 0.0),
-            w: frame.attrs.get_f64_or("width", 0.0),
-            h: frame.attrs.get_f64_or("height", 0.0),
-        },
+                .to_string();
+            let data = decode_data_uri(&href);
+            NodeKind::Image {
+                href,
+                x: frame.attrs.get_f64_or("x", 0.0),
+                y: frame.attrs.get_f64_or("y", 0.0),
+                w: frame.attrs.get_f64_or("width", 0.0),
+                h: frame.attrs.get_f64_or("height", 0.0),
+                data,
+            }
+        }
         "use" => NodeKind::Use {
             href: frame
                 .attrs
@@ -565,6 +570,32 @@ fn parse_points(s: &str) -> Vec<(f64, f64)> {
         .filter_map(|t| t.parse::<f64>().ok())
         .collect();
     nums.chunks_exact(2).map(|c| (c[0], c[1])).collect()
+}
+
+/// Decode a `data:image/<fmt>;base64,...` URI into its raw bytes.
+///
+/// Returns `None` for non-data URIs, unsupported encodings, or malformed
+/// payloads. Whitespace inside the base64 payload is tolerated (matplotlib
+/// does not add any, but some SVG tools do line-wrap long data URIs).
+fn decode_data_uri(href: &str) -> Option<ImageData> {
+    let rest = href.strip_prefix("data:image/")?;
+    // rest looks like "png;base64,iVBORw0..."
+    let (format, after) = rest.split_once(';')?;
+    let format = format.trim().to_ascii_lowercase();
+    if format.is_empty() {
+        return None;
+    }
+    // Normalise jpeg/jpg so the emitter can pass it straight to PowerPoint.
+    let format = if format == "jpg" { "jpeg".to_string() } else { format };
+
+    let after = after.trim_start_matches("base64,");
+    // Strip any embedded whitespace (some pretty-printers wrap long URIs).
+    let cleaned: String = after.chars().filter(|c| !c.is_whitespace()).collect();
+
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine as _;
+    let bytes = STANDARD.decode(cleaned.as_bytes()).ok()?;
+    Some(ImageData { bytes, format })
 }
 
 fn unescape_xml(s: &str) -> String {

@@ -16,11 +16,16 @@ and :mod:`mpl_office.docx`. A matplotlib backend is registered from
 :mod:`mpl_office.backend`.
 """
 
-from ._native import ConvertOptions, convert_svg_to_drawingml
+from ._native import (
+    ConvertOptions,
+    convert_svg_to_drawingml,
+    convert_svg_to_drawingml_with_images,
+)
 
 __all__ = [
     "ConvertOptions",
     "convert_svg_to_drawingml",
+    "convert_svg_to_drawingml_with_images",
     "__version__",
 ]
 

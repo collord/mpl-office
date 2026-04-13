@@ -72,10 +72,30 @@ pub enum NodeKind {
     Polygon { points: Vec<(f64, f64)> },
     Polyline { points: Vec<(f64, f64)> },
     Text(TextNode),
-    Image { href: String, x: f64, y: f64, w: f64, h: f64 },
+    Image {
+        /// Original `href` / `xlink:href` attribute. Kept for diagnostics;
+        /// the emitter uses `data` when present.
+        href: String,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        /// Decoded raster bytes when the href was a `data:image/...;base64,`
+        /// URI. `None` for external file references, which the core crate
+        /// doesn't resolve (the Python layer may fill these in later).
+        data: Option<ImageData>,
+    },
     /// `<use>` that the parser couldn't inline (e.g. forward reference);
     /// the emitter will resolve lazily.
     Use { href: String, x: f64, y: f64 },
+}
+
+/// Decoded raster image payload extracted from a `data:` URI.
+#[derive(Debug, Clone)]
+pub struct ImageData {
+    pub bytes: Vec<u8>,
+    /// `png`, `jpeg`, `gif`, etc. — stored lowercase, without the leading dot.
+    pub format: String,
 }
 
 impl Default for NodeKind {

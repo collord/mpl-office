@@ -4,16 +4,29 @@
 //! elements. Callers wrap the result into the appropriate container
 //! (`<p:spTree>` for a slide, `<w:drawing>` for a Word inline anchor).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 
 use crate::color::{alpha_to_drawingml, parse_color, Color};
 use crate::coord::{px_to_emu, ANGLE_UNIT, EMU_PER_INCH, FONT_PX_TO_HUNDREDTHS_PT};
-use crate::ir::{DefEntry, IrDocument, LinearGradient, Node, NodeKind, TextNode, TextRun};
+use crate::ir::{DefEntry, ImageData, IrDocument, LinearGradient, Node, NodeKind, TextNode, TextRun};
 use crate::path::{bbox, transform_cmds, PathCmd};
 use crate::style::{Paint, Style};
 use crate::transform::Affine;
 use crate::ConvertOptions;
+
+/// One image extracted from an `<image>` element and placed on the slide.
+///
+/// The emitter writes a `<p:pic>` shape with `r:embed="{sentinel}"`; the
+/// caller (Python layer) is responsible for registering `bytes` as an image
+/// part on the target slide, obtaining the real relationship id, and
+/// replacing every occurrence of `sentinel` in the emitted XML with it.
+#[derive(Debug, Clone)]
+pub struct EmittedImage {
+    pub sentinel: String,
+    pub bytes: Vec<u8>,
+    pub format: String,
+}
 
 /// Shared state held across the emission of one document.
 pub struct EmitContext {
@@ -28,6 +41,9 @@ pub struct EmitContext {
     pub emu_per_px: f64,
     /// Defs table (shared borrow into the document).
     pub defs: std::collections::HashMap<String, DefEntry>,
+    /// Images emitted during this pass, in the order their sentinels appear
+    /// in the XML. Callers drain this after `emit_document` returns.
+    pub images: RefCell<Vec<EmittedImage>>,
 }
 
 impl EmitContext {
@@ -46,7 +62,22 @@ impl EmitContext {
             offset_y_emu: opts.offset_y_emu,
             emu_per_px,
             defs: doc.defs.clone(),
+            images: RefCell::new(Vec::new()),
         }
+    }
+
+    /// Register an image for emission and return the sentinel rId that the
+    /// caller must later rewrite to a real relationship id.
+    pub fn next_image_sentinel(&self, data: &ImageData) -> String {
+        let mut images = self.images.borrow_mut();
+        let n = images.len();
+        let sentinel = format!("__mpl_office_img_{n}__");
+        images.push(EmittedImage {
+            sentinel: sentinel.clone(),
+            bytes: data.bytes.clone(),
+            format: data.format.clone(),
+        });
+        sentinel
     }
 
     pub fn next_id(&self) -> i64 {
@@ -174,9 +205,14 @@ fn emit_node(node: &Node, ctx: &EmitContext, parent_transform: Affine, parent_st
         NodeKind::Text(t) => {
             emit_text(ctx, transform, &style, t, out);
         }
-        NodeKind::Image { .. } => {
-            // Images are not inlined in the core crate (no raster support yet).
-            // Phase 5's Python layer handles image embedding when it needs to.
+        NodeKind::Image { x, y, w, h, data, .. } => {
+            if let Some(img) = data {
+                emit_image(ctx, transform, *x, *y, *w, *h, img, out);
+            }
+            // External file references with `data == None` are dropped — the
+            // core crate has no filesystem access to resolve them. A future
+            // enhancement could let the Python layer supply them through
+            // `ConvertOptions`.
         }
         NodeKind::Use { href, x, y } => {
             if let Some(DefEntry::Symbol(sym)) = ctx.defs.get(href) {
@@ -382,6 +418,87 @@ fn emit_path(
 
     let id = ctx.next_id();
     write_shape(out, id, "Freeform", emu_x, emu_y, emu_w, emu_h, 0, &geom, &fill, &stroke, "");
+}
+
+fn emit_image(
+    ctx: &EmitContext,
+    t: Affine,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    data: &ImageData,
+    out: &mut String,
+) {
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+
+    // Transform the four corners. matplotlib's imshow typically emits a
+    // translate+scale transform (often with a negative Y scale to flip the
+    // image), so we compute the axis-aligned bounding box of the transformed
+    // rect and drop any rotation component for now. Rotated images would
+    // need DrawingML's `rot` attribute, which we can add later.
+    let (x0, y0) = t.transform_point(x, y);
+    let (x1, y1) = t.transform_point(x + w, y);
+    let (x2, y2) = t.transform_point(x + w, y + h);
+    let (x3, y3) = t.transform_point(x, y + h);
+    let min_x = x0.min(x1).min(x2).min(x3);
+    let max_x = x0.max(x1).max(x2).max(x3);
+    let min_y = y0.min(y1).min(y2).min(y3);
+    let max_y = y0.max(y1).max(y2).max(y3);
+
+    let emu_x = ctx.u_to_emu(min_x) + ctx.offset_x_emu;
+    let emu_y = ctx.u_to_emu(min_y) + ctx.offset_y_emu;
+    let emu_w = (ctx.u_to_emu(max_x - min_x)).max(1);
+    let emu_h = (ctx.u_to_emu(max_y - min_y)).max(1);
+
+    // If the effective Y-scale is negative (imshow's default), tell DrawingML
+    // to flip the image vertically so it renders the right way up.
+    let flip_v = t.d < 0.0;
+    let flip_h = t.a < 0.0;
+    let mut flip_attrs = String::new();
+    if flip_h {
+        flip_attrs.push_str(" flipH=\"1\"");
+    }
+    if flip_v {
+        flip_attrs.push_str(" flipV=\"1\"");
+    }
+
+    let sentinel = ctx.next_image_sentinel(data);
+    let id = ctx.next_id();
+
+    write!(
+        out,
+        concat!(
+            "<p:pic>",
+            "<p:nvPicPr>",
+            "<p:cNvPr id=\"{id}\" name=\"Image {id}\"/>",
+            "<p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr>",
+            "<p:nvPr/>",
+            "</p:nvPicPr>",
+            "<p:blipFill>",
+            "<a:blip r:embed=\"{sentinel}\"/>",
+            "<a:stretch><a:fillRect/></a:stretch>",
+            "</p:blipFill>",
+            "<p:spPr>",
+            "<a:xfrm{flip_attrs}>",
+            "<a:off x=\"{x}\" y=\"{y}\"/>",
+            "<a:ext cx=\"{w}\" cy=\"{h}\"/>",
+            "</a:xfrm>",
+            "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>",
+            "</p:spPr>",
+            "</p:pic>"
+        ),
+        id = id,
+        sentinel = sentinel,
+        flip_attrs = flip_attrs,
+        x = emu_x,
+        y = emu_y,
+        w = emu_w,
+        h = emu_h,
+    )
+    .unwrap();
 }
 
 fn emit_text(
@@ -894,6 +1011,48 @@ mod tests {
         </svg>"##);
         assert!(out.contains("<p:grpSp>"));
         assert_eq!(out.matches("<p:sp>").count(), 2);
+    }
+
+    #[test]
+    fn emit_image_data_uri_round_trip() {
+        // 1×1 transparent PNG (smallest valid PNG we can embed)
+        const PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII=";
+        let svg = format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100">
+                <image x="10" y="20" width="50" height="40" xlink:href="data:image/png;base64,{PNG_BASE64}"/>
+            </svg>"##
+        );
+        let doc = crate::parse::parse_svg(&svg).unwrap();
+        let ctx = EmitContext::from_options(&doc, &ConvertOptions::default());
+        let xml = emit_document(&doc, &ctx);
+        let images = ctx.images.into_inner();
+
+        assert!(xml.contains("<p:pic>"));
+        assert!(xml.contains("r:embed=\"__mpl_office_img_0__\""));
+        assert_eq!(images.len(), 1, "expected one image to be extracted");
+        assert_eq!(images[0].sentinel, "__mpl_office_img_0__");
+        assert_eq!(images[0].format, "png");
+        assert!(!images[0].bytes.is_empty());
+        // Sanity-check the PNG magic number
+        assert_eq!(&images[0].bytes[..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn emit_image_negative_y_scale_sets_flipv() {
+        // imshow typically emits a transform that flips Y. Make sure flipV
+        // ends up on the <a:xfrm>.
+        const PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII=";
+        let svg = format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100">
+                <g transform="matrix(1 0 0 -1 0 100)">
+                    <image x="0" y="0" width="100" height="100" xlink:href="data:image/png;base64,{PNG_BASE64}"/>
+                </g>
+            </svg>"##
+        );
+        let doc = crate::parse::parse_svg(&svg).unwrap();
+        let ctx = EmitContext::from_options(&doc, &ConvertOptions::default());
+        let xml = emit_document(&doc, &ctx);
+        assert!(xml.contains("flipV=\"1\""), "expected flipV on inverted-Y image");
     }
 
     #[test]

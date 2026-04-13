@@ -3,6 +3,15 @@
 
 **Native vector graphics from Python into Microsoft Office documents.**
 
+> **Status (v0.1 scaffold):** Phases 0–6 are implemented in code under this
+> repo. Paths, primitives, styles, text, transforms, linear gradients,
+> `<use>`/`<defs>`, raster `<image>` embedding (imshow, colorbars), the
+> pptx injection layer, template workflows, and the matplotlib backend
+> all work end-to-end, with 55 Rust unit tests and 25 Python pytest
+> tests. Deferred for later: `.docx` output and clip-path geometric
+> intersection. The sections below have been updated to reflect the
+> choices that were actually made while implementing.
+
 ## Problem Statement
 
 The R ecosystem, via the `officer` + `rvg` packages, can insert fully editable vector graphics from any R plotting library into PowerPoint and Word documents. The Python ecosystem has no equivalent. Python users are stuck inserting raster PNGs into Office documents, losing editability, resolution independence, and producing bloated files.
@@ -103,6 +112,38 @@ Proprietary library with `AddFromSVGAsShapes()`. Not open source.
               └──────────────────────────────┘
 ```
 
+### Concrete workspace layout
+
+```
+mpl-office/
+├── Cargo.toml                      # Rust workspace root
+├── pyproject.toml                  # Python project + maturin config
+├── crates/
+│   ├── mpl-office-core/             # Pure-Rust converter
+│   │   └── src/
+│   │       ├── lib.rs               # Public API: convert_svg_to_drawingml, ConvertOptions
+│   │       ├── error.rs             # Error/Result types (thiserror)
+│   │       ├── coord.rs             # EMU math, DPI helpers
+│   │       ├── color.rs             # #RGB/#RRGGBB/rgb()/rgba()/named parsers
+│   │       ├── transform.rs         # 2D affine + SVG transform-list parser
+│   │       ├── path.rs              # Tokenize → absolutize → normalize → bbox
+│   │       ├── style.rs             # Style struct + cascading rules
+│   │       ├── ir.rs                # IrDocument, Node, NodeKind, gradients, defs
+│   │       ├── parse.rs             # quick-xml streaming parser → IR
+│   │       └── emit.rs              # IR → DrawingML XML
+│   └── mpl-office-py/               # PyO3 crate → mpl_office._native
+│       └── src/lib.rs               # #[pymodule] + ConvertOptions class
+└── python/mpl_office/               # Python package source
+    ├── __init__.py                  # Re-exports convert_svg_to_drawingml, ConvertOptions
+    ├── _inject.py                   # lxml helpers for <p:spTree> injection
+    ├── pptx.py                      # svg_to_slide, fig_to_slide, fig_to_placeholder
+    └── backend.py                   # matplotlib backend (FigureCanvasOffice)
+```
+
+The native extension is exposed as `mpl_office._native` and re-exported
+through `mpl_office.__init__` so users type `from mpl_office import ...`
+without touching the underscore module.
+
 ### Rust Core (`mpl-office-core`)
 
 **Input:** SVG string (or stream).
@@ -152,9 +193,52 @@ enum Node {
 
 **`coord`** — Coordinate system conversion. SVG uses pixels with Y-down. DrawingML uses EMUs (English Metric Units: 914400 EMU = 1 inch) with Y-down. The converter needs a configurable DPI assumption (matplotlib SVG defaults to 72 DPI) and a target bounding box (the placeholder or slide region) to compute the scaling transform.
 
+### Implementation decisions (as built)
+
+- **Target-bbox scaling is folded into the root affine.** When
+  `target_width_emu` / `target_height_emu` are set, `EmitContext` builds a
+  single affine that maps the SVG viewBox onto the EMU bbox, and every
+  shape's local transform is composed on top of it. That way each shape
+  emits final EMU coordinates directly — there is no second post-scaling
+  pass. Without a target, we just apply a DPI correction (96/source_dpi).
+- **Path math is hand-rolled, not `kurbo`.** The arc-to-cubic algorithm
+  (SVG F.6 endpoint → center parameterization, followed by the standard
+  4/3·tan(θ/4) approximation) lives in `path.rs::arc_to_cubics`. It's ~60
+  lines and exhaustively tested; skipping `kurbo` saves a dependency and
+  keeps the crate lean. See "Open Questions → kurbo vs. hand-rolled"
+  below for the tradeoff.
+- **`<text>` stays a single text box per `<text>` element.** Per-`<tspan>`
+  runs become `<a:r>` runs inside one `<a:p>`, which matches the
+  reference implementation and is exactly what matplotlib's SVG output
+  needs (one `<text>` per tick label, one per axis title).
+- **`<use>` is inlined at emit time.** When the emitter hits a
+  `NodeKind::Use`, it looks up the referenced node in the defs table and
+  recursively emits it with the use's `x`/`y` attributes composed into
+  the current transform. This was a bug fix — matplotlib uses `<use>`
+  for every tick mark, and the initial implementation ignored those
+  `x`/`y` attributes, stacking all ticks at the origin.
+- **Groups flatten when they only contain one shape.** The `<p:grpSp>`
+  wrapper only appears when a group has two or more children, avoiding
+  an unnecessary level of nesting for matplotlib's many one-shape
+  subgroups. Group bounds are computed by scanning the emitted inner
+  XML for `<a:off>`/`<a:ext>` pairs — a pragmatic pattern that avoids a
+  second tree walk.
+- **Rects and ellipses use `prstGeom` when possible.** If the effective
+  transform is translate + axis-aligned scale (no rotation or skew) and
+  the rect has no rounded corners, we emit `<a:prstGeom prst="rect">`
+  instead of a custom path. It produces crisper, smaller, and more
+  recognisable shapes in PowerPoint. Any rotation, skew, or rounded
+  corner falls back to `<a:custGeom>` with a cubic-Bézier approximation
+  (κ = 0.5522847498 for circle arcs).
+
 ### Python Package (`mpl-office`)
 
-Built with PyO3 + maturin. Exposes:
+Built with PyO3 0.22 + maturin. ABI3 floor is **Python 3.9**
+(`pyo3 = { features = ["abi3-py39"] }`), so one wheel per platform
+covers every future Python ≥ 3.9. `requires-python = ">=3.9"` in
+`pyproject.toml` matches.
+
+Exposes:
 
 #### Low-level: `convert_svg_to_drawingml(svg: str, options: ConvertOptions) -> str`
 
@@ -210,6 +294,40 @@ These functions:
 3. Inject the resulting XML into the `python-pptx` or `python-docx` object model
 
 The injection step requires reaching into `python-pptx`/`python-docx` internals to append shape XML to the slide's `spTree` or the document's body. Both libraries use `lxml` internally, so this is `etree.SubElement()` operations. We will need to also register relationships (for images, if any) and handle the `<p:grpSp>` wrapper that positions and scales the entire figure within the target region.
+
+**Implementation notes:**
+
+- **Matplotlib renders with `svg.fonttype='none'` forced via rc_context.**
+  Without this override, matplotlib's default SVG backend rasterizes text
+  into glyph outlines, which defeats the whole point of native DrawingML
+  output. `_render_fig_svg` in `python/mpl_office/pptx.py` wraps the
+  `savefig` call in `mpl.rc_context({"svg.fonttype": "none"})` so users
+  don't have to think about it.
+- **Namespace-safe injection.** The Rust emitter writes bare `<p:sp>` and
+  `<a:...>` tags without namespace declarations. `_inject.parse_drawingml_fragment`
+  wraps the fragment in a throwaway `<root>` element that declares all
+  OOXML namespaces, parses it, and returns the top-level children — ready
+  to be appended via `spTree.append(el)`.
+- **`fig_to_placeholder` takes the slide explicitly.** The first draft used
+  `placeholder.part.slide` to look up the owner, but that attribute isn't
+  stable across `python-pptx` versions. The signature is now
+  `fig_to_placeholder(fig, slide, placeholder, *, remove_placeholder=True)`
+  and the placeholder element is removed from the slide tree by default so
+  the figure cleanly replaces it.
+- **Image embedding uses a sentinel-rId protocol.** The Rust emitter has
+  no knowledge of `python-pptx`'s relationship tables, so it writes
+  `r:embed="__mpl_office_img_N__"` on each `<p:pic>` and returns the
+  image blobs in a parallel `Vec<EmittedImage>`. The Python layer
+  (`_inject.append_to_sptree_with_images`) then iterates the list,
+  calls `slide.part.get_or_add_image_part(BytesIO(bytes))` for each,
+  captures the real `rId` that python-pptx allocates, and does a literal
+  string replacement on the XML (`f'r:embed="{sentinel}"'` →
+  `f'r:embed="{rid}"'`) before parsing. The sentinels are opaque
+  strings that cannot collide with real rIds or with any other XML
+  content, so `str.replace` is both correct and fast. The legacy
+  `convert_svg_to_drawingml` function is kept for back-compat — it
+  emits the same XML (with unresolved sentinels) but discards the
+  image list, which is the behaviour the old API documented.
 
 #### High-level: matplotlib backend
 
@@ -430,32 +548,122 @@ Text is the highest-risk element. Font metrics differ between SVG rendering and 
 
 ### Rust
 
-| Crate | Purpose |
-|-------|---------|
-| `quick-xml` | SVG and DrawingML XML parsing/writing |
-| `cssparser` | CSS style attribute parsing |
-| `kurbo` | 2D geometry primitives, Bezier math, arc conversion |
-| `pyo3` | Python bindings |
+| Crate | Purpose | Notes |
+|-------|---------|-------|
+| `quick-xml` 0.36 | SVG parsing | Streaming reader, hand-rolled attribute decoder |
+| `thiserror` 1 | Error type derive | |
+| `base64` 0.22 | `data:` URI decoding | Used by the parser to extract inline PNGs/JPEGs from `<image>` hrefs |
+| `pyo3` 0.22 | Python bindings | `abi3-py39` + `extension-module` features |
+
+**Dropped from the original spec:**
+
+- **`cssparser`** — we only needed to parse inline `style="..."` declarations
+  and a tiny subset of CSS class rules, which `style.rs` handles in ~30
+  lines. A full CSS parser would be overkill.
+- **`kurbo`** — see the Open Questions section. Hand-rolled arc-to-cubic
+  is ~60 lines and avoids a chunky dependency for a crate that aims to
+  stay lean.
 
 ### Python
 
-| Package | Purpose |
-|---------|---------|
-| `maturin` | Build system for Rust+Python |
-| `matplotlib` | SVG rendering (peer dependency) |
-| `python-pptx` | OOXML PowerPoint manipulation |
-| `python-docx` | OOXML Word manipulation |
+| Package | Purpose | Notes |
+|---------|---------|-------|
+| `maturin` ≥ 1.5 | Build system | `python-source = "python"` layout |
+| `lxml` | OOXML injection | Required for pptx integration |
+| `python-pptx` | OOXML PowerPoint manipulation | Extra: `pptx` |
+| `python-docx` | OOXML Word manipulation | Extra: `docx`, deferred |
+| `matplotlib` ≥ 3.5 | SVG rendering | Extra: `matplotlib` |
 
 `matplotlib`, `python-pptx`, and `python-docx` are peer/optional dependencies — the core converter works without them.
 
-## Open Questions
+### Build and dev tooling
 
-1. **Clipping strategy.** DrawingML doesn't have a direct equivalent of SVG's `<clipPath>` applied to a group. Options: (a) geometric intersection at the path level (correct but expensive for complex clips), (b) ignore clips that match the axes bounding box (common case — matplotlib clips to the axes rectangle, which we can handle as a simple bbox), (c) rasterize clipped regions as a fallback. Likely (b) for v1, (a) for v2.
+- **`uv`** is the project's package manager (`uv sync --all-extras`,
+  `uv run pytest`). Native extension builds run through
+  `.venv/Scripts/maturin.exe develop --release`.
+- **CI** runs on GitHub Actions. `.github/workflows/ci.yml` runs
+  `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and a
+  pytest matrix over `{ubuntu, macos-14, windows} × {3.9, 3.12}`.
+  `.github/workflows/release.yml` builds a release wheel matrix
+  (manylinux / musllinux x86_64+aarch64, macOS universal2, windows x64,
+  sdist) and publishes to PyPI via OIDC trusted publishing on `v*` tags.
+  See `RELEASING.md` for the internal release procedure.
 
-2. **Text fidelity.** Font metrics will differ between matplotlib's rendering and Office's rendering. For tick labels and axis labels (short, positioned individually), this is fine — each is its own text box. For multi-line annotations or wrapped text, positioning may drift. Acceptable for v1; refinement later.
+## Open Questions and Decisions
 
-3. **`python-pptx` / `python-docx` internals.** Injecting raw XML into these libraries' object models means depending on their internal structure (`slide._element`, `slide.shapes._spTree`). These aren't public APIs. Mitigation: pin compatible versions, test against releases, contribute upstream if stable injection points would help.
+1. **Clipping strategy. (Deferred.)** DrawingML doesn't have a direct
+   equivalent of SVG's `<clipPath>` applied to a group. The v1 emitter
+   **parses `<clipPath>` into the defs table but does not apply it** — data
+   that falls outside a manually-tightened `xlim`/`ylim` will spill past the
+   axes frame. Acceptable because matplotlib's default "data clipping ≈
+   axes bbox" matches the emitter's implicit output region, and visually
+   correct clipping would require a geometric-intersection pass that's
+   expensive for scatter/line plots with thousands of segments. Revisit
+   when a user reports it.
 
-4. **3D plots.** matplotlib's 3D projection produces SVG paths (it's all 2D by the time it hits the backend). These will convert fine geometrically but may produce very large shape counts. May need a complexity threshold that falls back to raster for extremely dense plots.
+2. **Text fidelity.** Font metrics will differ between matplotlib's
+   rendering and Office's rendering. For tick labels and axis labels
+   (short, positioned individually), this is fine — each is its own text
+   box with explicit `x,y`. For multi-line annotations or wrapped text,
+   positioning may drift. We use the same rough-estimate text-width
+   function as the `typ2pptx` reference (charwise table + 1.15× fudge
+   factor) and force `svg.fonttype='none'` in the matplotlib render
+   helper so glyphs stay editable. Acceptable for v1.
 
-5. **`kurbo` vs. hand-rolled path math.** `kurbo` is a well-tested 2D geometry library by Raph Levien (the author of Ghostscript and many font/graphics tools). It provides arc-to-cubic, Bezier subdivision, and affine transforms. Using it avoids reimplementing tricky numerical code. Downside: one more dependency. **Recommendation: use `kurbo`.**
+3. **`python-pptx` / `python-docx` internals.** Injecting raw XML into
+   these libraries' object models means depending on their internal
+   structure (`slide.shapes._spTree`, `placeholder._element`). These
+   aren't public APIs. The `_inject.py` module centralises every such
+   access so a future version bump only needs to touch one file. `docx`
+   injection is deferred (see #5).
+
+4. **3D plots.** matplotlib's 3D projection produces SVG paths (it's all
+   2D by the time it hits the backend). These will convert fine
+   geometrically but may produce very large shape counts. May need a
+   complexity threshold that falls back to raster for extremely dense
+   plots.
+
+5. **`.docx` output. (Deferred.)** The initial `backend.print_docx`
+   raises `NotImplementedError`. Word's drawing model wraps shapes in
+   `<w:drawing><wp:inline>…<wps:wsp>` rather than `<p:sp>` directly, so
+   the pptx emitter's output needs a second rewrite pass. An early
+   prototype lived in `_inject.py` but was removed to keep v1 focused.
+   Revisit after a user actually asks for it.
+
+6. **`<image>` emission. (Resolved.)** Inline `data:image/...;base64,...`
+   URIs are decoded in the parser (see `parse::decode_data_uri`), stored
+   as `ImageData { bytes, format }` on the IR node, and the emitter
+   writes a `<p:pic>` shape with a sentinel `r:embed="__mpl_office_img_N__"`.
+   `EmitContext::images` collects the image blobs in order; the caller
+   uses `convert_svg_to_drawingml_with_images` (PyO3 exposes the same
+   name) and receives `(xml, Vec<EmittedImage>)`. The Python
+   `_inject.append_to_sptree_with_images` registers each blob as an
+   OOXML image part via `slide.part.get_or_add_image_part(BytesIO(bytes))`,
+   gets a real `rId` back, rewrites the sentinels in the XML by literal
+   string replacement, and then appends the elements to `<p:spTree>`.
+   Duplicate bytes are deduplicated automatically by python-pptx's
+   image-part cache. External `<image>` file references (no `data:`
+   prefix) are still dropped because the core crate has no filesystem
+   access; that's the one remaining gap and not expected to bite
+   matplotlib users since matplotlib's SVG backend always inlines
+   rasters as data URIs.
+
+7. **`kurbo` vs. hand-rolled path math. (Resolved: hand-rolled.)** The
+   original recommendation was to use `kurbo`. In practice the total
+   footprint of arc-to-cubic + quadratic-to-cubic + affine + bbox is
+   ~80 lines of straightforward numerical code, fully covered by unit
+   tests, and avoids pulling a geometry library (which also brings in
+   `arrayvec`, `smallvec`, etc.). `path.rs::arc_to_cubics` is the only
+   piece of numerically-interesting code and it's a direct transcription
+   of the SVG 1.1 F.6 algorithm. Revisit if we ever need Bézier
+   intersection, subdivision, or flattening — those are where `kurbo`
+   really earns its keep.
+
+8. **Group wrapping heuristic. (Resolved.)** We flatten groups with a
+   single child and wrap groups with two or more children in `<p:grpSp>`.
+   Group bounds are computed by scanning the emitted inner XML for
+   `<a:off>`/`<a:ext>` pairs. This sidesteps a second tree walk and
+   matches the reference implementation, at the cost of a tight coupling
+   between emitter output shape and the bounds-extraction regex. The
+   regex lives next to the emitter so a change in one forces a change
+   in the other.

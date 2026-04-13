@@ -4,9 +4,14 @@
 //! `ConvertOptions` class. The Python layer on top adds `python-pptx` /
 //! `python-docx` injection helpers and a matplotlib backend.
 
-use mpl_office_core::{convert_svg_to_drawingml as rust_convert, ConvertOptions as RustOptions};
+use mpl_office_core::{
+    convert_svg_to_drawingml as rust_convert,
+    convert_svg_to_drawingml_with_images as rust_convert_with_images,
+    ConvertOptions as RustOptions,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 
 #[pyclass(name = "ConvertOptions")]
 #[derive(Clone)]
@@ -73,10 +78,40 @@ fn convert_svg_to_drawingml(svg: &str, options: Option<&PyConvertOptions>) -> Py
         .map_err(|e| PyValueError::new_err(format!("{}", e)))
 }
 
+/// Like [`convert_svg_to_drawingml`] but also returns the list of raster
+/// images extracted from the SVG. Each entry is a
+/// ``(sentinel, bytes, format)`` tuple — the caller is expected to
+/// register ``bytes`` as an image part in the destination OOXML file,
+/// obtain a real relationship id, and replace every occurrence of
+/// ``sentinel`` in the XML (appearing as ``r:embed="{sentinel}"``) with
+/// that id.
+#[pyfunction]
+#[pyo3(signature = (svg, options=None))]
+fn convert_svg_to_drawingml_with_images<'py>(
+    py: Python<'py>,
+    svg: &str,
+    options: Option<&PyConvertOptions>,
+) -> PyResult<(String, Vec<(String, Bound<'py, PyBytes>, String)>)> {
+    let default_opts = PyConvertOptions::new(96.0, None, None, 0, 0);
+    let opts = options.unwrap_or(&default_opts);
+    let rust_opts: RustOptions = opts.into();
+    let (xml, images) = rust_convert_with_images(svg, &rust_opts)
+        .map_err(|e| PyValueError::new_err(format!("{}", e)))?;
+    let py_images = images
+        .into_iter()
+        .map(|img| {
+            let data = PyBytes::new_bound(py, &img.bytes);
+            (img.sentinel, data, img.format)
+        })
+        .collect();
+    Ok((xml, py_images))
+}
+
 /// The native extension module. Exposed as `mpl_office._native` from Python.
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(convert_svg_to_drawingml, m)?)?;
+    m.add_function(wrap_pyfunction!(convert_svg_to_drawingml_with_images, m)?)?;
     m.add_class::<PyConvertOptions>()?;
     Ok(())
 }

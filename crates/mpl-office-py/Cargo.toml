@@ -13,4 +13,4 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 mpl-office-core = { path = "../mpl-office-core" }
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py38"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }

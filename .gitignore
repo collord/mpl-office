@@ -48,3 +48,6 @@ examples/*.docx
 
 # Reference (downloaded for study, not checked in)
 .reference/
+
+# Internal release notes (not checked in)
+RELEASING.md

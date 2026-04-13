@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-tests:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy -p mpl-office-core --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test -p mpl-office-core --all-targets
+
+  python-tests:
+    name: Python tests (${{ matrix.os }} / Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python }} .venv
+      - name: Install dependencies
+        run: uv sync --all-extras
+      - name: Build native extension
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            .venv/Scripts/maturin.exe develop --release
+          else
+            .venv/bin/maturin develop --release
+          fi
+      - name: Run pytest
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            .venv/Scripts/python.exe -m pytest tests/ -v
+          else
+            .venv/bin/python -m pytest tests/ -v
+          fi

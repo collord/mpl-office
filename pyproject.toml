@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "mpl-office"
+version = "0.1.0"
+description = "Native vector graphics from Python into Microsoft Office documents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "mpl-office contributors" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Office/Business",
+]
+dependencies = []
+
+[project.optional-dependencies]
+pptx = ["python-pptx>=0.6.21", "lxml>=4.9"]
+docx = ["python-docx>=1.0", "lxml>=4.9"]
+matplotlib = ["matplotlib>=3.5"]
+all = [
+    "python-pptx>=0.6.21",
+    "python-docx>=1.0",
+    "lxml>=4.9",
+    "matplotlib>=3.5",
+]
+
+[project.urls]
+Repository = "https://github.com/dma/mpl-office"
+
+[tool.maturin]
+manifest-path = "crates/mpl-office-py/Cargo.toml"
+module-name = "mpl_office._native"
+python-source = "python"
+features = ["pyo3/extension-module"]

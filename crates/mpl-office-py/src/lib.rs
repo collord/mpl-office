@@ -1,0 +1,82 @@
+//! PyO3 bindings for mpl-office-core.
+//!
+//! Exposes a low-level `convert_svg_to_drawingml` function and a
+//! `ConvertOptions` class. The Python layer on top adds `python-pptx` /
+//! `python-docx` injection helpers and a matplotlib backend.
+
+use mpl_office_core::{convert_svg_to_drawingml as rust_convert, ConvertOptions as RustOptions};
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
+
+#[pyclass(name = "ConvertOptions")]
+#[derive(Clone)]
+struct PyConvertOptions {
+    #[pyo3(get, set)]
+    source_dpi: f64,
+    #[pyo3(get, set)]
+    target_width_emu: Option<i64>,
+    #[pyo3(get, set)]
+    target_height_emu: Option<i64>,
+    #[pyo3(get, set)]
+    offset_x_emu: i64,
+    #[pyo3(get, set)]
+    offset_y_emu: i64,
+}
+
+#[pymethods]
+impl PyConvertOptions {
+    #[new]
+    #[pyo3(signature = (source_dpi=96.0, target_width_emu=None, target_height_emu=None, offset_x_emu=0, offset_y_emu=0))]
+    fn new(
+        source_dpi: f64,
+        target_width_emu: Option<i64>,
+        target_height_emu: Option<i64>,
+        offset_x_emu: i64,
+        offset_y_emu: i64,
+    ) -> Self {
+        Self {
+            source_dpi,
+            target_width_emu,
+            target_height_emu,
+            offset_x_emu,
+            offset_y_emu,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ConvertOptions(source_dpi={}, target_width_emu={:?}, target_height_emu={:?}, offset_x_emu={}, offset_y_emu={})",
+            self.source_dpi, self.target_width_emu, self.target_height_emu, self.offset_x_emu, self.offset_y_emu
+        )
+    }
+}
+
+impl From<&PyConvertOptions> for RustOptions {
+    fn from(o: &PyConvertOptions) -> Self {
+        RustOptions {
+            source_dpi: o.source_dpi,
+            target_width_emu: o.target_width_emu,
+            target_height_emu: o.target_height_emu,
+            offset_x_emu: o.offset_x_emu,
+            offset_y_emu: o.offset_y_emu,
+        }
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (svg, options=None))]
+fn convert_svg_to_drawingml(svg: &str, options: Option<&PyConvertOptions>) -> PyResult<String> {
+    let default_opts = PyConvertOptions::new(96.0, None, None, 0, 0);
+    let opts = options.unwrap_or(&default_opts);
+    let rust_opts: RustOptions = opts.into();
+    rust_convert(svg, &rust_opts)
+        .map_err(|e| PyValueError::new_err(format!("{}", e)))
+}
+
+/// The native extension module. Exposed as `mpl_office._native` from Python.
+#[pymodule]
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(convert_svg_to_drawingml, m)?)?;
+    m.add_class::<PyConvertOptions>()?;
+    Ok(())
+}

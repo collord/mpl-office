@@ -1,0 +1,13 @@
+[package]
+name = "mpl-office-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "SVG to DrawingML converter core (pure Rust)"
+
+[dependencies]
+quick-xml.workspace = true
+kurbo.workspace = true
+thiserror.workspace = true

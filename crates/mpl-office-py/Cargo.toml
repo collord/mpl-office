@@ -1,0 +1,16 @@
+[package]
+name = "mpl-office-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "PyO3 bindings for mpl-office-core"
+
+[lib]
+name = "mpl_office"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mpl-office-core = { path = "../mpl-office-core" }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py38"] }

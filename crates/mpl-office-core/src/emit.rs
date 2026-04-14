@@ -314,6 +314,7 @@ fn emit_rect(
     emit_path(ctx, t, style, &cmds, out);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_ellipse(
     ctx: &EmitContext,
     t: Affine,
@@ -396,6 +397,7 @@ fn emit_ellipse(
     emit_path(ctx, t, style, &cmds, out);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_line(
     ctx: &EmitContext,
     t: Affine,
@@ -525,6 +527,7 @@ fn emit_path(ctx: &EmitContext, t: Affine, style: &Style, cmds: &[PathCmd], out:
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_image(
     ctx: &EmitContext,
     t: Affine,

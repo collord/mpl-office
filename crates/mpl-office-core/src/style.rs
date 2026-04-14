@@ -5,34 +5,24 @@ use crate::color::{parse_color, Color};
 use std::collections::HashMap;
 
 /// Fill paint — solid color, gradient reference, or none.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum Paint {
     None,
     Color(Color),
     /// `url(#id)` reference, e.g. to a `<linearGradient>`.
     Ref(String),
     /// Not specified at this level (inherit).
+    #[default]
     Inherit,
 }
 
-impl Default for Paint {
-    fn default() -> Self {
-        Paint::Inherit
-    }
-}
-
 /// Stroke dash kind — either a preset or a raw array.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum DashKind {
+    #[default]
     Solid,
     Preset(String),
     Array(Vec<f64>),
-}
-
-impl Default for DashKind {
-    fn default() -> Self {
-        DashKind::Solid
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

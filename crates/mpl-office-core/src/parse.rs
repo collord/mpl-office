@@ -608,7 +608,7 @@ fn parse_stop(attrs: &Attrs) -> Option<GradientStop> {
 fn node_to_def_entry(_node: &Node) -> Option<DefEntry> {
     // Placeholder: we only accept linearGradient / clipPath explicitly during
     // parsing, so regular nodes under <defs> become reusable symbols.
-    Some(DefEntry::Symbol(_node.clone()))
+    Some(DefEntry::Symbol(Box::new(_node.clone())))
 }
 
 fn parse_points(s: &str) -> Vec<(f64, f64)> {

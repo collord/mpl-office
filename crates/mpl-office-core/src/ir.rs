@@ -27,8 +27,9 @@ pub struct IrDocument {
 pub enum DefEntry {
     LinearGradient(LinearGradient),
     ClipPath(ClipPath),
-    /// Reusable symbol/element (for `<use>`).
-    Symbol(Node),
+    /// Reusable symbol/element (for `<use>`). Boxed because `Node` is ~500
+    /// bytes and dominates the enum's layout otherwise.
+    Symbol(Box<Node>),
 }
 
 #[derive(Debug, Clone)]

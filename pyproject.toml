@@ -29,6 +29,14 @@ all = [
     "lxml>=4.9",
     "matplotlib>=3.5",
 ]
+dev = [
+    "python-pptx>=0.6.21",
+    "python-docx>=1.0",
+    "lxml>=4.9",
+    "matplotlib>=3.5",
+    "pytest>=8",
+    "maturin>=1.5,<2.0",
+]
 
 [project.urls]
 Repository = "https://github.com/dma/mpl-office"

@@ -49,8 +49,15 @@ jobs:
         run: uv venv --python ${{ matrix.python }} .venv
       - name: Install dependencies
         run: uv sync --all-extras
+      - name: Install maturin into the venv
+        shell: bash
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+        run: uv pip install maturin
       - name: Build native extension
         shell: bash
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
             .venv/Scripts/maturin.exe develop --release

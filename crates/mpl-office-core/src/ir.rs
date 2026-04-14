@@ -64,13 +64,38 @@ pub struct Node {
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
-    Group { children: Vec<Node> },
-    Path { cmds: Vec<PathCmd> },
-    Rect { x: f64, y: f64, w: f64, h: f64, rx: f64, ry: f64 },
-    Ellipse { cx: f64, cy: f64, rx: f64, ry: f64 },
-    Line { x1: f64, y1: f64, x2: f64, y2: f64 },
-    Polygon { points: Vec<(f64, f64)> },
-    Polyline { points: Vec<(f64, f64)> },
+    Group {
+        children: Vec<Node>,
+    },
+    Path {
+        cmds: Vec<PathCmd>,
+    },
+    Rect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        rx: f64,
+        ry: f64,
+    },
+    Ellipse {
+        cx: f64,
+        cy: f64,
+        rx: f64,
+        ry: f64,
+    },
+    Line {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+    },
+    Polygon {
+        points: Vec<(f64, f64)>,
+    },
+    Polyline {
+        points: Vec<(f64, f64)>,
+    },
     Text(TextNode),
     Image {
         /// Original `href` / `xlink:href` attribute. Kept for diagnostics;
@@ -87,7 +112,11 @@ pub enum NodeKind {
     },
     /// `<use>` that the parser couldn't inline (e.g. forward reference);
     /// the emitter will resolve lazily.
-    Use { href: String, x: f64, y: f64 },
+    Use {
+        href: String,
+        x: f64,
+        y: f64,
+    },
 }
 
 /// Decoded raster image payload extracted from a `data:` URI.
@@ -100,7 +129,9 @@ pub struct ImageData {
 
 impl Default for NodeKind {
     fn default() -> Self {
-        NodeKind::Group { children: Vec::new() }
+        NodeKind::Group {
+            children: Vec::new(),
+        }
     }
 }
 

@@ -9,7 +9,9 @@ use std::fmt::Write as _;
 
 use crate::color::{alpha_to_drawingml, parse_color, Color};
 use crate::coord::{px_to_emu, ANGLE_UNIT, EMU_PER_INCH, FONT_PX_TO_HUNDREDTHS_PT};
-use crate::ir::{DefEntry, ImageData, IrDocument, LinearGradient, Node, NodeKind, TextNode, TextRun};
+use crate::ir::{
+    DefEntry, ImageData, IrDocument, LinearGradient, Node, NodeKind, TextNode, TextRun,
+};
 use crate::path::{bbox, transform_cmds, PathCmd};
 use crate::style::{Paint, Style};
 use crate::transform::Affine;
@@ -100,7 +102,12 @@ fn compute_root_affine(doc: &IrDocument, opts: &ConvertOptions) -> Affine {
     let (src_w, src_h, vb_x, vb_y) = if let Some((x, y, w, h)) = doc.view_box {
         (w, h, x, y)
     } else {
-        (doc.width.unwrap_or(0.0), doc.height.unwrap_or(0.0), 0.0, 0.0)
+        (
+            doc.width.unwrap_or(0.0),
+            doc.height.unwrap_or(0.0),
+            0.0,
+            0.0,
+        )
     };
 
     // Source-DPI rescale (matplotlib writes 72 DPI but DrawingML assumes 96).
@@ -119,8 +126,10 @@ fn compute_root_affine(doc: &IrDocument, opts: &ConvertOptions) -> Affine {
             // honour fit_scale_*, we embed (fit_scale_x / emu_per_px) into the
             // root affine.
             let emu_per_px = EMU_PER_INCH as f64 / 96.0;
-            return Affine::translate(-vb_x, -vb_y)
-                .then(Affine::scale(fit_scale_x / emu_per_px, fit_scale_y / emu_per_px));
+            return Affine::translate(-vb_x, -vb_y).then(Affine::scale(
+                fit_scale_x / emu_per_px,
+                fit_scale_y / emu_per_px,
+            ));
         }
     }
 
@@ -135,7 +144,13 @@ pub fn emit_document(doc: &IrDocument, ctx: &EmitContext) -> String {
     out
 }
 
-fn emit_node(node: &Node, ctx: &EmitContext, parent_transform: Affine, parent_style: &Style, out: &mut String) {
+fn emit_node(
+    node: &Node,
+    ctx: &EmitContext,
+    parent_transform: Affine,
+    parent_style: &Style,
+    out: &mut String,
+) {
     let transform = parent_transform.then(node.transform);
     let style = parent_style.cascade(&node.style);
 
@@ -205,7 +220,9 @@ fn emit_node(node: &Node, ctx: &EmitContext, parent_transform: Affine, parent_st
         NodeKind::Text(t) => {
             emit_text(ctx, transform, &style, t, out);
         }
-        NodeKind::Image { x, y, w, h, data, .. } => {
+        NodeKind::Image {
+            x, y, w, h, data, ..
+        } => {
             if let Some(img) = data {
                 emit_image(ctx, transform, *x, *y, *w, *h, img, out);
             }
@@ -234,8 +251,12 @@ fn emit_rect(
     ctx: &EmitContext,
     t: Affine,
     style: &Style,
-    x: f64, y: f64, w: f64, h: f64,
-    rx: f64, ry: f64,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    rx: f64,
+    ry: f64,
     out: &mut String,
 ) {
     if w <= 0.0 || h <= 0.0 {
@@ -253,11 +274,32 @@ fn emit_rect(
         let emu_w = (ctx.u_to_emu(x1) - ctx.u_to_emu(x0)).abs().max(1);
         let emu_h = (ctx.u_to_emu(y1) - ctx.u_to_emu(y0)).abs().max(1);
         let geom = "<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>";
-        let fill = build_fill(&style.effective_fill(), style.effective_fill_opacity(), &ctx.defs);
-        let stroke = build_stroke(&style.effective_stroke(), style.effective_stroke_opacity(),
-                                  style.effective_stroke_width() * scale_factor(&t), style);
+        let fill = build_fill(
+            &style.effective_fill(),
+            style.effective_fill_opacity(),
+            &ctx.defs,
+        );
+        let stroke = build_stroke(
+            &style.effective_stroke(),
+            style.effective_stroke_opacity(),
+            style.effective_stroke_width() * scale_factor(&t),
+            style,
+        );
         let id = ctx.next_id();
-        write_shape(out, id, "Rectangle", emu_x, emu_y, emu_w, emu_h, 0, geom, &fill, &stroke, "");
+        write_shape(
+            out,
+            id,
+            "Rectangle",
+            emu_x,
+            emu_y,
+            emu_w,
+            emu_h,
+            0,
+            geom,
+            &fill,
+            &stroke,
+            "",
+        );
         return;
     }
 
@@ -276,7 +318,10 @@ fn emit_ellipse(
     ctx: &EmitContext,
     t: Affine,
     style: &Style,
-    cx: f64, cy: f64, rx: f64, ry: f64,
+    cx: f64,
+    cy: f64,
+    rx: f64,
+    ry: f64,
     out: &mut String,
 ) {
     if rx <= 0.0 || ry <= 0.0 {
@@ -290,11 +335,21 @@ fn emit_ellipse(
         let emu_w = (ctx.u_to_emu(x1) - ctx.u_to_emu(x0)).abs().max(1);
         let emu_h = (ctx.u_to_emu(y1) - ctx.u_to_emu(y0)).abs().max(1);
         let geom = "<a:prstGeom prst=\"ellipse\"><a:avLst/></a:prstGeom>";
-        let fill = build_fill(&style.effective_fill(), style.effective_fill_opacity(), &ctx.defs);
-        let stroke = build_stroke(&style.effective_stroke(), style.effective_stroke_opacity(),
-                                  style.effective_stroke_width() * scale_factor(&t), style);
+        let fill = build_fill(
+            &style.effective_fill(),
+            style.effective_fill_opacity(),
+            &ctx.defs,
+        );
+        let stroke = build_stroke(
+            &style.effective_stroke(),
+            style.effective_stroke_opacity(),
+            style.effective_stroke_width() * scale_factor(&t),
+            style,
+        );
         let id = ctx.next_id();
-        write_shape(out, id, "Ellipse", emu_x, emu_y, emu_w, emu_h, 0, geom, &fill, &stroke, "");
+        write_shape(
+            out, id, "Ellipse", emu_x, emu_y, emu_w, emu_h, 0, geom, &fill, &stroke, "",
+        );
         return;
     }
 
@@ -304,10 +359,38 @@ fn emit_ellipse(
     let oy = ry * K;
     let cmds = vec![
         PathCmd::MoveTo { x: cx + rx, y: cy },
-        PathCmd::CubicTo { x1: cx + rx, y1: cy + oy, x2: cx + ox, y2: cy + ry, x: cx, y: cy + ry },
-        PathCmd::CubicTo { x1: cx - ox, y1: cy + ry, x2: cx - rx, y2: cy + oy, x: cx - rx, y: cy },
-        PathCmd::CubicTo { x1: cx - rx, y1: cy - oy, x2: cx - ox, y2: cy - ry, x: cx, y: cy - ry },
-        PathCmd::CubicTo { x1: cx + ox, y1: cy - ry, x2: cx + rx, y2: cy - oy, x: cx + rx, y: cy },
+        PathCmd::CubicTo {
+            x1: cx + rx,
+            y1: cy + oy,
+            x2: cx + ox,
+            y2: cy + ry,
+            x: cx,
+            y: cy + ry,
+        },
+        PathCmd::CubicTo {
+            x1: cx - ox,
+            y1: cy + ry,
+            x2: cx - rx,
+            y2: cy + oy,
+            x: cx - rx,
+            y: cy,
+        },
+        PathCmd::CubicTo {
+            x1: cx - rx,
+            y1: cy - oy,
+            x2: cx - ox,
+            y2: cy - ry,
+            x: cx,
+            y: cy - ry,
+        },
+        PathCmd::CubicTo {
+            x1: cx + ox,
+            y1: cy - ry,
+            x2: cx + rx,
+            y2: cy - oy,
+            x: cx + rx,
+            y: cy,
+        },
         PathCmd::Close,
     ];
     emit_path(ctx, t, style, &cmds, out);
@@ -317,7 +400,10 @@ fn emit_line(
     ctx: &EmitContext,
     t: Affine,
     style: &Style,
-    x1: f64, y1: f64, x2: f64, y2: f64,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
     out: &mut String,
 ) {
     let cmds = vec![
@@ -342,7 +428,10 @@ fn emit_poly(
         return;
     }
     let mut cmds = Vec::with_capacity(points.len() + 1);
-    cmds.push(PathCmd::MoveTo { x: points[0].0, y: points[0].1 });
+    cmds.push(PathCmd::MoveTo {
+        x: points[0].0,
+        y: points[0].1,
+    });
     for (px, py) in &points[1..] {
         cmds.push(PathCmd::LineTo { x: *px, y: *py });
     }
@@ -356,13 +445,7 @@ fn emit_poly(
     emit_path(ctx, t, &style, &cmds, out);
 }
 
-fn emit_path(
-    ctx: &EmitContext,
-    t: Affine,
-    style: &Style,
-    cmds: &[PathCmd],
-    out: &mut String,
-) {
+fn emit_path(ctx: &EmitContext, t: Affine, style: &Style, cmds: &[PathCmd], out: &mut String) {
     if cmds.is_empty() {
         return;
     }
@@ -384,14 +467,25 @@ fn emit_path(
             PathCmd::MoveTo { x, y } => {
                 let lx = ctx.u_to_emu(x - min_x);
                 let ly = ctx.u_to_emu(y - min_y);
-                write!(path_inner, "<a:moveTo><a:pt x=\"{lx}\" y=\"{ly}\"/></a:moveTo>").unwrap();
+                write!(
+                    path_inner,
+                    "<a:moveTo><a:pt x=\"{lx}\" y=\"{ly}\"/></a:moveTo>"
+                )
+                .unwrap();
             }
             PathCmd::LineTo { x, y } => {
                 let lx = ctx.u_to_emu(x - min_x);
                 let ly = ctx.u_to_emu(y - min_y);
                 write!(path_inner, "<a:lnTo><a:pt x=\"{lx}\" y=\"{ly}\"/></a:lnTo>").unwrap();
             }
-            PathCmd::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCmd::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 let c1x = ctx.u_to_emu(x1 - min_x);
                 let c1y = ctx.u_to_emu(y1 - min_y);
                 let c2x = ctx.u_to_emu(x2 - min_x);
@@ -412,12 +506,23 @@ fn emit_path(
         "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"l\" t=\"t\" r=\"r\" b=\"b\"/><a:pathLst><a:path w=\"{emu_w}\" h=\"{emu_h}\">{path_inner}</a:path></a:pathLst></a:custGeom>",
     );
 
-    let fill = build_fill(&style.effective_fill(), style.effective_fill_opacity(), &ctx.defs);
+    let fill = build_fill(
+        &style.effective_fill(),
+        style.effective_fill_opacity(),
+        &ctx.defs,
+    );
     let sw_scaled = style.effective_stroke_width() * scale_factor(&t);
-    let stroke = build_stroke(&style.effective_stroke(), style.effective_stroke_opacity(), sw_scaled, style);
+    let stroke = build_stroke(
+        &style.effective_stroke(),
+        style.effective_stroke_opacity(),
+        sw_scaled,
+        style,
+    );
 
     let id = ctx.next_id();
-    write_shape(out, id, "Freeform", emu_x, emu_y, emu_w, emu_h, 0, &geom, &fill, &stroke, "");
+    write_shape(
+        out, id, "Freeform", emu_x, emu_y, emu_w, emu_h, 0, &geom, &fill, &stroke, "",
+    );
 }
 
 fn emit_image(
@@ -501,13 +606,7 @@ fn emit_image(
     .unwrap();
 }
 
-fn emit_text(
-    ctx: &EmitContext,
-    t: Affine,
-    style: &Style,
-    text: &TextNode,
-    out: &mut String,
-) {
+fn emit_text(ctx: &EmitContext, t: Affine, style: &Style, text: &TextNode, out: &mut String) {
     // We map text anchor position through the transform; font sizing uses
     // the transform's overall scale so rotated labels still read correctly.
     let (tx, ty) = t.transform_point(text.x, text.y);
@@ -516,7 +615,12 @@ fn emit_text(
     let sz = (font_size * FONT_PX_TO_HUNDREDTHS_PT).round() as i64;
 
     // Very crude width estimate — matches the reference implementation.
-    let full_text: String = text.runs.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("");
+    let full_text: String = text
+        .runs
+        .iter()
+        .map(|r| r.text.as_str())
+        .collect::<Vec<_>>()
+        .join("");
     if full_text.trim().is_empty() {
         return;
     }
@@ -560,7 +664,12 @@ fn emit_text(
     }
     if runs_xml.is_empty() {
         // Single-run fallback when runs are empty but text has content.
-        let default_run = TextRun { text: full_text.clone(), style: Style::default(), x: None, y: None };
+        let default_run = TextRun {
+            text: full_text.clone(),
+            style: Style::default(),
+            x: None,
+            y: None,
+        };
         write_text_run(&mut runs_xml, &default_run, style, fill_color, sz);
     }
 
@@ -713,7 +822,8 @@ fn build_linear_gradient_fill(g: &LinearGradient, opacity: f64) -> String {
             write!(
                 stops,
                 "<a:gs pos=\"{pos}\"><a:srgbClr val=\"{hex}\"/></a:gs>"
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
     if stops.is_empty() {
@@ -721,15 +831,12 @@ fn build_linear_gradient_fill(g: &LinearGradient, opacity: f64) -> String {
     }
     let angle_rad = (g.y2 - g.y1).atan2(g.x2 - g.x1);
     let ang = ((angle_rad.to_degrees().rem_euclid(360.0)) * ANGLE_UNIT as f64).round() as i64;
-    format!("<a:gradFill><a:gsLst>{stops}</a:gsLst><a:lin ang=\"{ang}\" scaled=\"1\"/></a:gradFill>")
+    format!(
+        "<a:gradFill><a:gsLst>{stops}</a:gsLst><a:lin ang=\"{ang}\" scaled=\"1\"/></a:gradFill>"
+    )
 }
 
-fn build_stroke(
-    paint: &Paint,
-    opacity: f64,
-    width_px: f64,
-    style: &Style,
-) -> String {
+fn build_stroke(paint: &Paint, opacity: f64, width_px: f64, style: &Style) -> String {
     match paint {
         Paint::None => "<a:ln><a:noFill/></a:ln>".to_string(),
         Paint::Color(c) => {
@@ -799,7 +906,11 @@ fn write_shape(
     stroke: &str,
     extra: &str,
 ) {
-    let rot_attr = if rot != 0 { format!(" rot=\"{}\"", rot) } else { String::new() };
+    let rot_attr = if rot != 0 {
+        format!(" rot=\"{}\"", rot)
+    } else {
+        String::new()
+    };
     write!(
         out,
         concat!(
@@ -867,13 +978,19 @@ fn count_top_level_shapes(s: &str) -> usize {
     while i + 1 < bytes.len() {
         if bytes[i] == b'<' {
             let rest = &s[i..];
-            if rest.starts_with("</p:sp>") || rest.starts_with("</p:grpSp>") || rest.starts_with("</p:pic>") {
+            if rest.starts_with("</p:sp>")
+                || rest.starts_with("</p:grpSp>")
+                || rest.starts_with("</p:pic>")
+            {
                 depth -= 1;
                 if depth == 0 { /* end of top-level element already counted */ }
                 i += 1;
                 continue;
             }
-            if rest.starts_with("<p:sp>") || rest.starts_with("<p:grpSp>") || rest.starts_with("<p:pic>") {
+            if rest.starts_with("<p:sp>")
+                || rest.starts_with("<p:grpSp>")
+                || rest.starts_with("<p:pic>")
+            {
                 if depth == 0 {
                     count += 1;
                 }
@@ -913,10 +1030,18 @@ fn extract_bounds(s: &str) -> Option<(i64, i64, i64, i64)> {
             if let Some(after) = rest.strip_prefix("<a:ext ") {
                 if let Some((cx, cy)) = parse_cx_cy(after) {
                     if let Some((ox, oy)) = pending_off.take() {
-                        if ox < min_x { min_x = ox; }
-                        if oy < min_y { min_y = oy; }
-                        if ox + cx > max_x { max_x = ox + cx; }
-                        if oy + cy > max_y { max_y = oy + cy; }
+                        if ox < min_x {
+                            min_x = ox;
+                        }
+                        if oy < min_y {
+                            min_y = oy;
+                        }
+                        if ox + cx > max_x {
+                            max_x = ox + cx;
+                        }
+                        if oy + cy > max_y {
+                            max_y = oy + cy;
+                        }
                     }
                 }
                 i += 1;
@@ -965,9 +1090,11 @@ mod tests {
 
     #[test]
     fn emit_rect_preset_geom() {
-        let out = convert(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <rect x="10" y="20" width="30" height="40" fill="#ff0000"/>
-        </svg>"##);
+        </svg>"##,
+        );
         assert!(out.contains("<p:sp>"));
         assert!(out.contains("a:prstGeom prst=\"rect\""));
         assert!(out.contains("srgbClr val=\"FF0000\""));
@@ -975,17 +1102,21 @@ mod tests {
 
     #[test]
     fn emit_ellipse_preset() {
-        let out = convert(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <circle cx="50" cy="50" r="20" fill="#00ff00"/>
-        </svg>"##);
+        </svg>"##,
+        );
         assert!(out.contains("a:prstGeom prst=\"ellipse\""));
     }
 
     #[test]
     fn emit_path_custom_geom() {
-        let out = convert(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <path d="M0 0 L10 0 L10 10 Z" fill="blue"/>
-        </svg>"##);
+        </svg>"##,
+        );
         assert!(out.contains("a:custGeom"));
         assert!(out.contains("a:moveTo"));
         assert!(out.contains("a:lnTo"));
@@ -994,21 +1125,25 @@ mod tests {
 
     #[test]
     fn emit_stroke_only_line() {
-        let out = convert(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <line x1="0" y1="0" x2="10" y2="10" stroke="#000000" stroke-width="2"/>
-        </svg>"##);
+        </svg>"##,
+        );
         assert!(out.contains("a:ln"));
         assert!(out.contains("srgbClr val=\"000000\""));
     }
 
     #[test]
     fn emit_multiple_shapes_group_wraps() {
-        let out = convert(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <g>
                 <rect x="0" y="0" width="10" height="10"/>
                 <rect x="20" y="20" width="10" height="10"/>
             </g>
-        </svg>"##);
+        </svg>"##,
+        );
         assert!(out.contains("<p:grpSp>"));
         assert_eq!(out.matches("<p:sp>").count(), 2);
     }
@@ -1052,20 +1187,28 @@ mod tests {
         let doc = crate::parse::parse_svg(&svg).unwrap();
         let ctx = EmitContext::from_options(&doc, &ConvertOptions::default());
         let xml = emit_document(&doc, &ctx);
-        assert!(xml.contains("flipV=\"1\""), "expected flipV on inverted-Y image");
+        assert!(
+            xml.contains("flipV=\"1\""),
+            "expected flipV on inverted-Y image"
+        );
     }
 
     #[test]
     fn emit_honours_target_bbox() {
-        let out = convert(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
             <rect x="0" y="0" width="100" height="100"/>
-        </svg>"##);
+        </svg>"##,
+        );
         // Without target, 100 user units → 100 * 9525 = 952500 EMU
         assert!(out.contains("cx=\"952500\""));
 
-        let doc = parse_svg(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        let doc = parse_svg(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
             <rect x="0" y="0" width="100" height="100"/>
-        </svg>"##).unwrap();
+        </svg>"##,
+        )
+        .unwrap();
         let opts = ConvertOptions {
             target_width_emu: Some(6_858_000),
             target_height_emu: Some(4_572_000),

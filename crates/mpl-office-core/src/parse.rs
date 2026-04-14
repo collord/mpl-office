@@ -65,12 +65,13 @@ pub fn parse_svg(xml: &str) -> Result<IrDocument> {
                     continue;
                 }
                 // Pop the matching frame and collect its children into its parent.
-                let frame = stack.pop().ok_or_else(|| {
-                    Error::Parse(format!("unexpected </{}>", tag))
-                })?;
+                let frame = stack
+                    .pop()
+                    .ok_or_else(|| Error::Parse(format!("unexpected </{}>", tag)))?;
                 if frame.tag != tag {
                     return Err(Error::Parse(format!(
-                        "mismatched close: expected </{}>, got </{}>", frame.tag, tag
+                        "mismatched close: expected </{}>, got </{}>",
+                        frame.tag, tag
                     )));
                 }
 
@@ -130,7 +131,9 @@ pub fn parse_svg(xml: &str) -> Result<IrDocument> {
                 }
 
                 if frame.tag == "clipPath" {
-                    let clip = ClipPath { children: frame.children.clone() };
+                    let clip = ClipPath {
+                        children: frame.children.clone(),
+                    };
                     if let Some(id) = frame.attrs.get("id") {
                         let entry = DefEntry::ClipPath(clip);
                         if let Some(parent) = stack.last_mut() {
@@ -211,9 +214,8 @@ impl Attrs {
             // Decode bytes → str (SVG files are UTF-8). We apply a minimal
             // entity unescape below; for the matplotlib subset this handles
             // every case in practice.
-            let raw = std::str::from_utf8(&attr.value).map_err(|err| {
-                Error::Parse(format!("attr utf8: {}", err))
-            })?;
+            let raw = std::str::from_utf8(&attr.value)
+                .map_err(|err| Error::Parse(format!("attr utf8: {}", err)))?;
             let val = unescape_xml(raw);
             map.insert(key, val);
         }
@@ -305,9 +307,20 @@ fn attrs_and_style_to_style(
     // SVG says `style=""` wins over presentation attrs. But we insert
     // presentation attrs only if not already set from style.
     let presentation = &[
-        "fill", "stroke", "stroke-width", "opacity", "fill-opacity",
-        "stroke-opacity", "stroke-dasharray", "stroke-linecap", "stroke-linejoin",
-        "font-family", "font-size", "font-weight", "font-style", "text-anchor",
+        "fill",
+        "stroke",
+        "stroke-width",
+        "opacity",
+        "fill-opacity",
+        "stroke-opacity",
+        "stroke-dasharray",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "font-style",
+        "text-anchor",
         "clip-path",
     ];
     for k in presentation {
@@ -373,7 +386,9 @@ fn build_group_node(frame: &StackFrame, _css: &HashMap<String, Style>) -> Result
         id: frame.attrs.get("id").map(str::to_string),
         transform,
         style,
-        kind: NodeKind::Group { children: frame.children.clone() },
+        kind: NodeKind::Group {
+            children: frame.children.clone(),
+        },
     })
 }
 
@@ -388,7 +403,9 @@ fn build_element_node(frame: &StackFrame, css: &HashMap<String, Style>) -> Resul
     let id = frame.attrs.get("id").map(str::to_string);
 
     let kind = match tag {
-        "g" => NodeKind::Group { children: frame.children.clone() },
+        "g" => NodeKind::Group {
+            children: frame.children.clone(),
+        },
         "path" => {
             let d = frame.attrs.get("d").unwrap_or("");
             let cmds = parse_and_normalize(d)?;
@@ -462,7 +479,12 @@ fn build_element_node(frame: &StackFrame, css: &HashMap<String, Style>) -> Resul
         _ => return Ok(None),
     };
 
-    Ok(Some(Node { id, transform, style, kind }))
+    Ok(Some(Node {
+        id,
+        transform,
+        style,
+        kind,
+    }))
 }
 
 fn build_text_node(frame: &StackFrame, css: &HashMap<String, Style>) -> Result<Node> {
@@ -511,17 +533,36 @@ fn build_linear_gradient(frame: &StackFrame) -> Result<LinearGradient> {
             v.parse().unwrap_or(default)
         }
     }
-    let x1 = frame.attrs.get("x1").map(|v| parse_grad_coord(v, 0.0)).unwrap_or(0.0);
-    let y1 = frame.attrs.get("y1").map(|v| parse_grad_coord(v, 0.0)).unwrap_or(0.0);
-    let x2 = frame.attrs.get("x2").map(|v| parse_grad_coord(v, 1.0)).unwrap_or(1.0);
-    let y2 = frame.attrs.get("y2").map(|v| parse_grad_coord(v, 0.0)).unwrap_or(0.0);
+    let x1 = frame
+        .attrs
+        .get("x1")
+        .map(|v| parse_grad_coord(v, 0.0))
+        .unwrap_or(0.0);
+    let y1 = frame
+        .attrs
+        .get("y1")
+        .map(|v| parse_grad_coord(v, 0.0))
+        .unwrap_or(0.0);
+    let x2 = frame
+        .attrs
+        .get("x2")
+        .map(|v| parse_grad_coord(v, 1.0))
+        .unwrap_or(1.0);
+    let y2 = frame
+        .attrs
+        .get("y2")
+        .map(|v| parse_grad_coord(v, 0.0))
+        .unwrap_or(0.0);
     let user_space = frame
         .attrs
         .get("gradientUnits")
         .map(|v| v == "userSpaceOnUse")
         .unwrap_or(false);
     Ok(LinearGradient {
-        x1, y1, x2, y2,
+        x1,
+        y1,
+        x2,
+        y2,
         stops: frame.gradient_stops.clone(),
         user_space_on_use: user_space,
     })
@@ -546,7 +587,10 @@ fn parse_stop(attrs: &Attrs) -> Option<GradientStop> {
         if color.is_none() {
             color = decls.get("stop-color").cloned();
         }
-        if let Some(o) = decls.get("stop-opacity").and_then(|v| v.parse::<f64>().ok()) {
+        if let Some(o) = decls
+            .get("stop-opacity")
+            .and_then(|v| v.parse::<f64>().ok())
+        {
             opacity = o;
         }
     }
@@ -554,7 +598,11 @@ fn parse_stop(attrs: &Attrs) -> Option<GradientStop> {
     let parsed = crate::color::parse_color(c)?;
     let mut hex = [0u8; 6];
     hex.copy_from_slice(parsed.hex().unwrap_or("000000").as_bytes());
-    Some(GradientStop { offset, color: hex, opacity })
+    Some(GradientStop {
+        offset,
+        color: hex,
+        opacity,
+    })
 }
 
 fn node_to_def_entry(_node: &Node) -> Option<DefEntry> {
@@ -586,7 +634,11 @@ fn decode_data_uri(href: &str) -> Option<ImageData> {
         return None;
     }
     // Normalise jpeg/jpg so the emitter can pass it straight to PowerPoint.
-    let format = if format == "jpg" { "jpeg".to_string() } else { format };
+    let format = if format == "jpg" {
+        "jpeg".to_string()
+    } else {
+        format
+    };
 
     let after = after.trim_start_matches("base64,");
     // Strip any embedded whitespace (some pretty-printers wrap long URIs).
@@ -619,11 +671,11 @@ fn unescape_xml(s: &str) -> String {
                     "quot" => Some('"'),
                     "apos" => Some('\''),
                     e if e.starts_with("#x") || e.starts_with("#X") => {
-                        u32::from_str_radix(&e[2..], 16).ok().and_then(char::from_u32)
+                        u32::from_str_radix(&e[2..], 16)
+                            .ok()
+                            .and_then(char::from_u32)
                     }
-                    e if e.starts_with('#') => {
-                        e[1..].parse::<u32>().ok().and_then(char::from_u32)
-                    }
+                    e if e.starts_with('#') => e[1..].parse::<u32>().ok().and_then(char::from_u32),
                     _ => None,
                 };
                 if let Some(ch) = replacement {
@@ -667,7 +719,9 @@ mod tests {
 
     #[test]
     fn parse_empty_svg() {
-        let doc = parse_svg(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"/>"##).unwrap();
+        let doc =
+            parse_svg(r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"/>"##)
+                .unwrap();
         assert_eq!(doc.width, Some(100.0));
         assert_eq!(doc.height, Some(50.0));
     }
@@ -768,9 +822,8 @@ mod tests {
 
     #[test]
     fn parse_viewbox() {
-        let doc = parse_svg(
-            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80"/>"##
-        ).unwrap();
+        let doc = parse_svg(r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80"/>"##)
+            .unwrap();
         assert_eq!(doc.view_box, Some((0.0, 0.0, 100.0, 80.0)));
     }
 

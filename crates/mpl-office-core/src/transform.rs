@@ -106,7 +106,10 @@ impl Affine {
     }
 
     pub fn transform_point(&self, x: f64, y: f64) -> (f64, f64) {
-        (self.a * x + self.c * y + self.e, self.b * x + self.d * y + self.f)
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
     }
 
     pub fn is_identity(&self) -> bool {
@@ -206,8 +209,16 @@ pub fn parse_transform(s: &str) -> Affine {
                     .then(Affine::translate(-cx, -cy)),
                 _ => Affine::IDENTITY,
             },
-            "skewX" => args.first().copied().map(Affine::skew_x_deg).unwrap_or(Affine::IDENTITY),
-            "skewY" => args.first().copied().map(Affine::skew_y_deg).unwrap_or(Affine::IDENTITY),
+            "skewX" => args
+                .first()
+                .copied()
+                .map(Affine::skew_x_deg)
+                .unwrap_or(Affine::IDENTITY),
+            "skewY" => args
+                .first()
+                .copied()
+                .map(Affine::skew_y_deg)
+                .unwrap_or(Affine::IDENTITY),
             "matrix" => {
                 if args.len() >= 6 {
                     Affine {

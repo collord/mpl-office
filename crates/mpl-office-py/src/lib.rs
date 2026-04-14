@@ -74,8 +74,7 @@ fn convert_svg_to_drawingml(svg: &str, options: Option<&PyConvertOptions>) -> Py
     let default_opts = PyConvertOptions::new(96.0, None, None, 0, 0);
     let opts = options.unwrap_or(&default_opts);
     let rust_opts: RustOptions = opts.into();
-    rust_convert(svg, &rust_opts)
-        .map_err(|e| PyValueError::new_err(format!("{}", e)))
+    rust_convert(svg, &rust_opts).map_err(|e| PyValueError::new_err(format!("{}", e)))
 }
 
 /// Like [`convert_svg_to_drawingml`] but also returns the list of raster

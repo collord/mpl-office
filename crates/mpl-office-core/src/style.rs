@@ -232,7 +232,9 @@ pub fn parse_length(v: &str) -> Option<f64> {
     }
     let end = v
         .char_indices()
-        .find(|(_, c)| !c.is_ascii_digit() && *c != '.' && *c != '-' && *c != '+' && *c != 'e' && *c != 'E')
+        .find(|(_, c)| {
+            !c.is_ascii_digit() && *c != '.' && *c != '-' && *c != '+' && *c != 'e' && *c != 'E'
+        })
         .map(|(i, _)| i)
         .unwrap_or(v.len());
     v[..end].parse().ok()
@@ -267,16 +269,28 @@ mod tests {
 
     #[test]
     fn cascade_opacity_multiplies() {
-        let parent = Style { opacity: Some(0.5), ..Default::default() };
-        let child = Style { opacity: Some(0.5), ..Default::default() };
+        let parent = Style {
+            opacity: Some(0.5),
+            ..Default::default()
+        };
+        let child = Style {
+            opacity: Some(0.5),
+            ..Default::default()
+        };
         let merged = parent.cascade(&child);
         assert_eq!(merged.opacity, Some(0.25));
     }
 
     #[test]
     fn cascade_fill_overrides() {
-        let parent = Style { fill: Paint::Color(parse_color("#ff0000").unwrap()), ..Default::default() };
-        let child = Style { fill: Paint::Color(parse_color("#00ff00").unwrap()), ..Default::default() };
+        let parent = Style {
+            fill: Paint::Color(parse_color("#ff0000").unwrap()),
+            ..Default::default()
+        };
+        let child = Style {
+            fill: Paint::Color(parse_color("#00ff00").unwrap()),
+            ..Default::default()
+        };
         let merged = parent.cascade(&child);
         if let Paint::Color(c) = merged.fill {
             assert_eq!(c.hex(), Some("00FF00"));

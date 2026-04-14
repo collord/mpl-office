@@ -17,8 +17,14 @@ use crate::error::{Error, Result};
 /// four variants — the rest are converted into them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathCmd {
-    MoveTo { x: f64, y: f64 },
-    LineTo { x: f64, y: f64 },
+    MoveTo {
+        x: f64,
+        y: f64,
+    },
+    LineTo {
+        x: f64,
+        y: f64,
+    },
     CubicTo {
         x1: f64,
         y1: f64,
@@ -131,14 +137,22 @@ fn collect_commands(tokens: Vec<Token>) -> Result<Vec<RawCmd>> {
 
     // Helper to flush pending args under the current command.
     // M/m chains implicitly become L/l after the first pair.
-    fn flush(out: &mut Vec<RawCmd>, current: &mut Option<char>, pending: &mut Vec<f64>) -> Result<()> {
+    fn flush(
+        out: &mut Vec<RawCmd>,
+        current: &mut Option<char>,
+        pending: &mut Vec<f64>,
+    ) -> Result<()> {
         let Some(cmd) = *current else {
             pending.clear();
             return Ok(());
         };
-        let n = arg_count(cmd).ok_or_else(|| Error::Path(format!("unknown path command '{}'", cmd)))?;
+        let n =
+            arg_count(cmd).ok_or_else(|| Error::Path(format!("unknown path command '{}'", cmd)))?;
         if n == 0 {
-            out.push(RawCmd { cmd, args: Vec::new() });
+            out.push(RawCmd {
+                cmd,
+                args: Vec::new(),
+            });
             pending.clear();
             // Clear current so a subsequent end-of-input flush doesn't re-emit.
             *current = None;
@@ -150,7 +164,9 @@ fn collect_commands(tokens: Vec<Token>) -> Result<Vec<RawCmd>> {
             }
             return Err(Error::Path(format!(
                 "command '{}' expected {} args, got {}",
-                cmd, n, pending.len()
+                cmd,
+                n,
+                pending.len()
             )));
         }
         let mut idx = 0;
@@ -214,58 +230,94 @@ fn to_absolute(raw: &[RawCmd]) -> Vec<RawCmd> {
                 cy = a[1];
                 sx = cx;
                 sy = cy;
-                out.push(RawCmd { cmd: 'M', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'M',
+                    args: vec![cx, cy],
+                });
             }
             'm' => {
                 cx += a[0];
                 cy += a[1];
                 sx = cx;
                 sy = cy;
-                out.push(RawCmd { cmd: 'M', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'M',
+                    args: vec![cx, cy],
+                });
             }
             'L' => {
                 cx = a[0];
                 cy = a[1];
-                out.push(RawCmd { cmd: 'L', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'L',
+                    args: vec![cx, cy],
+                });
             }
             'l' => {
                 cx += a[0];
                 cy += a[1];
-                out.push(RawCmd { cmd: 'L', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'L',
+                    args: vec![cx, cy],
+                });
             }
             'H' => {
                 cx = a[0];
-                out.push(RawCmd { cmd: 'L', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'L',
+                    args: vec![cx, cy],
+                });
             }
             'h' => {
                 cx += a[0];
-                out.push(RawCmd { cmd: 'L', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'L',
+                    args: vec![cx, cy],
+                });
             }
             'V' => {
                 cy = a[0];
-                out.push(RawCmd { cmd: 'L', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'L',
+                    args: vec![cx, cy],
+                });
             }
             'v' => {
                 cy += a[0];
-                out.push(RawCmd { cmd: 'L', args: vec![cx, cy] });
+                out.push(RawCmd {
+                    cmd: 'L',
+                    args: vec![cx, cy],
+                });
             }
             'C' => {
-                out.push(RawCmd { cmd: 'C', args: a.clone() });
+                out.push(RawCmd {
+                    cmd: 'C',
+                    args: a.clone(),
+                });
                 cx = a[4];
                 cy = a[5];
             }
             'c' => {
                 let abs = vec![
-                    cx + a[0], cy + a[1],
-                    cx + a[2], cy + a[3],
-                    cx + a[4], cy + a[5],
+                    cx + a[0],
+                    cy + a[1],
+                    cx + a[2],
+                    cy + a[3],
+                    cx + a[4],
+                    cy + a[5],
                 ];
                 cx = abs[4];
                 cy = abs[5];
-                out.push(RawCmd { cmd: 'C', args: abs });
+                out.push(RawCmd {
+                    cmd: 'C',
+                    args: abs,
+                });
             }
             'S' => {
-                out.push(RawCmd { cmd: 'S', args: a.clone() });
+                out.push(RawCmd {
+                    cmd: 'S',
+                    args: a.clone(),
+                });
                 cx = a[2];
                 cy = a[3];
             }
@@ -273,10 +325,16 @@ fn to_absolute(raw: &[RawCmd]) -> Vec<RawCmd> {
                 let abs = vec![cx + a[0], cy + a[1], cx + a[2], cy + a[3]];
                 cx = abs[2];
                 cy = abs[3];
-                out.push(RawCmd { cmd: 'S', args: abs });
+                out.push(RawCmd {
+                    cmd: 'S',
+                    args: abs,
+                });
             }
             'Q' => {
-                out.push(RawCmd { cmd: 'Q', args: a.clone() });
+                out.push(RawCmd {
+                    cmd: 'Q',
+                    args: a.clone(),
+                });
                 cx = a[2];
                 cy = a[3];
             }
@@ -284,10 +342,16 @@ fn to_absolute(raw: &[RawCmd]) -> Vec<RawCmd> {
                 let abs = vec![cx + a[0], cy + a[1], cx + a[2], cy + a[3]];
                 cx = abs[2];
                 cy = abs[3];
-                out.push(RawCmd { cmd: 'Q', args: abs });
+                out.push(RawCmd {
+                    cmd: 'Q',
+                    args: abs,
+                });
             }
             'T' => {
-                out.push(RawCmd { cmd: 'T', args: a.clone() });
+                out.push(RawCmd {
+                    cmd: 'T',
+                    args: a.clone(),
+                });
                 cx = a[0];
                 cy = a[1];
             }
@@ -295,10 +359,16 @@ fn to_absolute(raw: &[RawCmd]) -> Vec<RawCmd> {
                 let abs = vec![cx + a[0], cy + a[1]];
                 cx = abs[0];
                 cy = abs[1];
-                out.push(RawCmd { cmd: 'T', args: abs });
+                out.push(RawCmd {
+                    cmd: 'T',
+                    args: abs,
+                });
             }
             'A' => {
-                out.push(RawCmd { cmd: 'A', args: a.clone() });
+                out.push(RawCmd {
+                    cmd: 'A',
+                    args: a.clone(),
+                });
                 cx = a[5];
                 cy = a[6];
             }
@@ -306,10 +376,16 @@ fn to_absolute(raw: &[RawCmd]) -> Vec<RawCmd> {
                 let abs = vec![a[0], a[1], a[2], a[3], a[4], cx + a[5], cy + a[6]];
                 cx = abs[5];
                 cy = abs[6];
-                out.push(RawCmd { cmd: 'A', args: abs });
+                out.push(RawCmd {
+                    cmd: 'A',
+                    args: abs,
+                });
             }
             'Z' | 'z' => {
-                out.push(RawCmd { cmd: 'Z', args: Vec::new() });
+                out.push(RawCmd {
+                    cmd: 'Z',
+                    args: Vec::new(),
+                });
                 cx = sx;
                 cy = sy;
             }
@@ -405,7 +481,11 @@ fn arc_to_cubics(
         }
         let c = ((ux * vx + uy * vy) / n).clamp(-1.0, 1.0);
         let a = c.acos();
-        if ux * vy - uy * vx < 0.0 { -a } else { a }
+        if ux * vy - uy * vx < 0.0 {
+            -a
+        } else {
+            a
+        }
     }
 
     let ux1 = (x1p - cxp) / rx;
@@ -423,7 +503,9 @@ fn arc_to_cubics(
     }
 
     // Split into segments of ≤ 90°
-    let n_segs = (dtheta.abs() / (std::f64::consts::PI / 2.0)).ceil().max(1.0) as usize;
+    let n_segs = (dtheta.abs() / (std::f64::consts::PI / 2.0))
+        .ceil()
+        .max(1.0) as usize;
     let d_per_seg = dtheta / n_segs as f64;
     let alpha = 4.0 / 3.0 * (d_per_seg / 4.0).tan();
 
@@ -494,7 +576,12 @@ pub fn normalize(absolute: &[RawCmd]) -> Vec<PathCmd> {
                 cx = a[4];
                 cy = a[5];
                 out.push(PathCmd::CubicTo {
-                    x1: a[0], y1: a[1], x2: a[2], y2: a[3], x: a[4], y: a[5],
+                    x1: a[0],
+                    y1: a[1],
+                    x2: a[2],
+                    y2: a[3],
+                    x: a[4],
+                    y: a[5],
                 });
                 last_qp_x = cx;
                 last_qp_y = cy;
@@ -510,9 +597,12 @@ pub fn normalize(absolute: &[RawCmd]) -> Vec<PathCmd> {
                 let nx = a[2];
                 let ny = a[3];
                 out.push(PathCmd::CubicTo {
-                    x1: rcp_x, y1: rcp_y,
-                    x2: a[0], y2: a[1],
-                    x: nx, y: ny,
+                    x1: rcp_x,
+                    y1: rcp_y,
+                    x2: a[0],
+                    y2: a[1],
+                    x: nx,
+                    y: ny,
                 });
                 cx = nx;
                 cy = ny;
@@ -524,9 +614,12 @@ pub fn normalize(absolute: &[RawCmd]) -> Vec<PathCmd> {
                 last_qp_x = a[0];
                 last_qp_y = a[1];
                 out.push(PathCmd::CubicTo {
-                    x1: cubic[0], y1: cubic[1],
-                    x2: cubic[2], y2: cubic[3],
-                    x: cubic[4], y: cubic[5],
+                    x1: cubic[0],
+                    y1: cubic[1],
+                    x2: cubic[2],
+                    y2: cubic[3],
+                    x: cubic[4],
+                    y: cubic[5],
                 });
                 cx = a[2];
                 cy = a[3];
@@ -543,9 +636,12 @@ pub fn normalize(absolute: &[RawCmd]) -> Vec<PathCmd> {
                 last_qp_y = qy;
                 let cubic = quad_to_cubic(qx, qy, cx, cy, a[0], a[1]);
                 out.push(PathCmd::CubicTo {
-                    x1: cubic[0], y1: cubic[1],
-                    x2: cubic[2], y2: cubic[3],
-                    x: cubic[4], y: cubic[5],
+                    x1: cubic[0],
+                    y1: cubic[1],
+                    x2: cubic[2],
+                    y2: cubic[3],
+                    x: cubic[4],
+                    y: cubic[5],
                 });
                 cx = a[0];
                 cy = a[1];
@@ -554,16 +650,24 @@ pub fn normalize(absolute: &[RawCmd]) -> Vec<PathCmd> {
             }
             'A' => {
                 let segs = arc_to_cubics(
-                    cx, cy,
-                    a[0], a[1], a[2],
-                    a[3] != 0.0, a[4] != 0.0,
-                    a[5], a[6],
+                    cx,
+                    cy,
+                    a[0],
+                    a[1],
+                    a[2],
+                    a[3] != 0.0,
+                    a[4] != 0.0,
+                    a[5],
+                    a[6],
                 );
                 for s in segs {
                     out.push(PathCmd::CubicTo {
-                        x1: s[0], y1: s[1],
-                        x2: s[2], y2: s[3],
-                        x: s[4], y: s[5],
+                        x1: s[0],
+                        y1: s[1],
+                        x2: s[2],
+                        y2: s[3],
+                        x: s[4],
+                        y: s[5],
                     });
                 }
                 cx = a[5];
@@ -595,11 +699,25 @@ pub fn transform_cmds(cmds: &[PathCmd], t: &crate::transform::Affine) -> Vec<Pat
                 let (nx, ny) = t.transform_point(*x, *y);
                 PathCmd::LineTo { x: nx, y: ny }
             }
-            PathCmd::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCmd::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 let (a, b) = t.transform_point(*x1, *y1);
                 let (c, d) = t.transform_point(*x2, *y2);
                 let (e, f) = t.transform_point(*x, *y);
-                PathCmd::CubicTo { x1: a, y1: b, x2: c, y2: d, x: e, y: f }
+                PathCmd::CubicTo {
+                    x1: a,
+                    y1: b,
+                    x2: c,
+                    y2: d,
+                    x: e,
+                    y: f,
+                }
             }
             PathCmd::Close => PathCmd::Close,
         })
@@ -614,17 +732,32 @@ pub fn bbox(cmds: &[PathCmd]) -> (f64, f64, f64, f64) {
     let mut maxx = f64::NEG_INFINITY;
     let mut maxy = f64::NEG_INFINITY;
     let push = |x: f64, y: f64, minx: &mut f64, miny: &mut f64, maxx: &mut f64, maxy: &mut f64| {
-        if x < *minx { *minx = x; }
-        if y < *miny { *miny = y; }
-        if x > *maxx { *maxx = x; }
-        if y > *maxy { *maxy = y; }
+        if x < *minx {
+            *minx = x;
+        }
+        if y < *miny {
+            *miny = y;
+        }
+        if x > *maxx {
+            *maxx = x;
+        }
+        if y > *maxy {
+            *maxy = y;
+        }
     };
     for c in cmds {
         match c {
             PathCmd::MoveTo { x, y } | PathCmd::LineTo { x, y } => {
                 push(*x, *y, &mut minx, &mut miny, &mut maxx, &mut maxy);
             }
-            PathCmd::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCmd::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 push(*x1, *y1, &mut minx, &mut miny, &mut maxx, &mut maxy);
                 push(*x2, *y2, &mut minx, &mut miny, &mut maxx, &mut maxy);
                 push(*x, *y, &mut minx, &mut miny, &mut maxx, &mut maxy);
@@ -649,18 +782,31 @@ mod tests {
     #[test]
     fn tokenize_mixed() {
         let toks = tokenize("M10 20L30,40");
-        assert_eq!(toks, vec![
-            Token::Cmd('M'), Token::Num(10.0), Token::Num(20.0),
-            Token::Cmd('L'), Token::Num(30.0), Token::Num(40.0),
-        ]);
+        assert_eq!(
+            toks,
+            vec![
+                Token::Cmd('M'),
+                Token::Num(10.0),
+                Token::Num(20.0),
+                Token::Cmd('L'),
+                Token::Num(30.0),
+                Token::Num(40.0),
+            ]
+        );
     }
 
     #[test]
     fn tokenize_no_space_negatives() {
         let toks = tokenize("M10-5-3.5");
-        assert_eq!(toks, vec![
-            Token::Cmd('M'), Token::Num(10.0), Token::Num(-5.0), Token::Num(-3.5),
-        ]);
+        assert_eq!(
+            toks,
+            vec![
+                Token::Cmd('M'),
+                Token::Num(10.0),
+                Token::Num(-5.0),
+                Token::Num(-3.5),
+            ]
+        );
     }
 
     #[test]
@@ -677,7 +823,10 @@ mod tests {
         let cmds = parse_and_normalize("M0 0 10 0 20 0").unwrap();
         assert_eq!(cmds.len(), 3);
         match cmds[1] {
-            PathCmd::LineTo { x, y } => { assert_eq!(x, 10.0); assert_eq!(y, 0.0); }
+            PathCmd::LineTo { x, y } => {
+                assert_eq!(x, 10.0);
+                assert_eq!(y, 0.0);
+            }
             _ => panic!("expected LineTo"),
         }
     }
@@ -686,11 +835,17 @@ mod tests {
     fn relative_moveto_lineto() {
         let cmds = parse_and_normalize("m10 10 l5 5").unwrap();
         match cmds[0] {
-            PathCmd::MoveTo { x, y } => { assert_eq!(x, 10.0); assert_eq!(y, 10.0); }
+            PathCmd::MoveTo { x, y } => {
+                assert_eq!(x, 10.0);
+                assert_eq!(y, 10.0);
+            }
             _ => panic!(),
         }
         match cmds[1] {
-            PathCmd::LineTo { x, y } => { assert_eq!(x, 15.0); assert_eq!(y, 15.0); }
+            PathCmd::LineTo { x, y } => {
+                assert_eq!(x, 15.0);
+                assert_eq!(y, 15.0);
+            }
             _ => panic!(),
         }
     }
@@ -700,11 +855,17 @@ mod tests {
         let cmds = parse_and_normalize("M0 0 H10 V10 Z").unwrap();
         // M, L, L, Z
         match cmds[1] {
-            PathCmd::LineTo { x, y } => { assert_eq!(x, 10.0); assert_eq!(y, 0.0); }
+            PathCmd::LineTo { x, y } => {
+                assert_eq!(x, 10.0);
+                assert_eq!(y, 0.0);
+            }
             _ => panic!(),
         }
         match cmds[2] {
-            PathCmd::LineTo { x, y } => { assert_eq!(x, 10.0); assert_eq!(y, 10.0); }
+            PathCmd::LineTo { x, y } => {
+                assert_eq!(x, 10.0);
+                assert_eq!(y, 10.0);
+            }
             _ => panic!(),
         }
     }
@@ -713,7 +874,10 @@ mod tests {
     fn cubic_passthrough() {
         let cmds = parse_and_normalize("M0 0 C 10 0 20 10 30 10").unwrap();
         match cmds[1] {
-            PathCmd::CubicTo { x, y, .. } => { assert_eq!(x, 30.0); assert_eq!(y, 10.0); }
+            PathCmd::CubicTo { x, y, .. } => {
+                assert_eq!(x, 30.0);
+                assert_eq!(y, 10.0);
+            }
             _ => panic!(),
         }
     }
@@ -723,12 +887,19 @@ mod tests {
         let cmds = parse_and_normalize("M0 0 Q10 0 20 10").unwrap();
         assert_eq!(cmds.len(), 2);
         match cmds[1] {
-            PathCmd::CubicTo { x1, y1, x2, y2, x, y } => {
+            PathCmd::CubicTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
                 // Q(0,0)→(10,0)→(20,10). Cubic control points = 2/3 of the way.
-                assert!(approx(x1, 0.0 + 2.0/3.0 * 10.0));
+                assert!(approx(x1, 0.0 + 2.0 / 3.0 * 10.0));
                 assert!(approx(y1, 0.0));
-                assert!(approx(x2, 20.0 + 2.0/3.0 * (10.0 - 20.0)));
-                assert!(approx(y2, 10.0 + 2.0/3.0 * (0.0 - 10.0)));
+                assert!(approx(x2, 20.0 + 2.0 / 3.0 * (10.0 - 20.0)));
+                assert!(approx(y2, 10.0 + 2.0 / 3.0 * (0.0 - 10.0)));
                 assert_eq!(x, 20.0);
                 assert_eq!(y, 10.0);
             }
@@ -768,7 +939,10 @@ mod tests {
         // Semicircle from (0,0) to (20,0), r=10. >90°, should split.
         let cmds = parse_and_normalize("M0 0 A10 10 0 0 1 20 0").unwrap();
         // 1 MoveTo + at least 2 CubicTo (180° → 2 segments)
-        let cubics = cmds.iter().filter(|c| matches!(c, PathCmd::CubicTo { .. })).count();
+        let cubics = cmds
+            .iter()
+            .filter(|c| matches!(c, PathCmd::CubicTo { .. }))
+            .count();
         assert!(cubics >= 2);
     }
 

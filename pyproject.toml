@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "mpl-office"
-version = "0.0.1"
+version = "0.0.2"
 description = "Native vector graphics from Python into Microsoft Office documents"
 readme = "README.md"
 requires-python = ">=3.9"

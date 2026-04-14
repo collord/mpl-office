@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "mpl-office"
-version = "0.1.0"
+version = "0.0.1"
 description = "Native vector graphics from Python into Microsoft Office documents"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -39,7 +39,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/dma/mpl-office"
+Repository = "https://github.com/collord/mpl-office"
 
 [tool.maturin]
 manifest-path = "crates/mpl-office-py/Cargo.toml"

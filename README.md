@@ -419,7 +419,7 @@ MIT.
 
 ## Acknowledgements
 
-The path-normalization algorithm is a hand-rolled Rust reimplementation
+The path-normalization algorithm is a machine-rolled-hand-rolled Rust reimplementation
 of the approach used in
 [`touying-typ/typ2pptx`](https://github.com/touying-typ/typ2pptx)'s
 `svg_to_shapes.py`. That project's author deserves credit for proving
@@ -429,5 +429,5 @@ structure that this project borrowed.
 The R ecosystem's [`officer`](https://github.com/davidgohel/officer) +
 [`rvg`](https://github.com/davidgohel/rvg) packages set the standard
 for native vector graphics in Office documents, and are what I wish
-Python had had for the last ten years. This project is an attempt to
+Python had had for the last five years. This project is an attempt to
 finally close that gap.

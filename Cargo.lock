@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "mpl-office-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "base64",
  "quick-xml",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "mpl-office-py"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "mpl-office-core",
  "pyo3",

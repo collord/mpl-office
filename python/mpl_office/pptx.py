@@ -115,10 +115,29 @@ def fig_to_slide(
 def fig_to_placeholder(fig, slide, placeholder, *, remove_placeholder: bool = True):
     """Insert a figure into a placeholder, matching its position and size.
 
+    `placeholder` may be a python-pptx placeholder object or a string name
+    (the label shown in PowerPoint's Selection Pane). Passing a string is the
+    recommended pattern when working with named templates::
+
+        fig_to_placeholder(fig, slide, "Graph_Placeholder_1")
+
     `slide` must be the slide that owns the placeholder. By default the
     placeholder element is removed from the slide after its bounds are
     captured, so the figure replaces it cleanly.
     """
+    if isinstance(placeholder, str):
+        label = placeholder
+        placeholder = next(
+            (ph for ph in slide.placeholders if ph.name == label),
+            None,
+        )
+        if placeholder is None:
+            available = [ph.name for ph in slide.placeholders]
+            raise ValueError(
+                f"No placeholder named {label!r} on this slide. "
+                f"Available: {available}"
+            )
+
     left = placeholder.left
     top = placeholder.top
     width = placeholder.width

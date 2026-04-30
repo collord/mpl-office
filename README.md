@@ -159,11 +159,7 @@ from mpl_office.pptx import fig_to_placeholder
 prs = Presentation("template.pptx")
 slide = prs.slides[0]
 
-content_ph = next(
-    ph for ph in slide.placeholders
-    if ph.placeholder_format.idx != 0  # skip title
-)
-fig_to_placeholder(fig, slide, content_ph)
+fig_to_placeholder(fig, slide, "Graph_Placeholder_1")
 prs.save("out.pptx")
 ```
 

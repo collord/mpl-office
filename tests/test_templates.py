@@ -144,6 +144,55 @@ def test_fig_to_placeholder(template_path: Path, artifacts: Path):
     assert matches, "expected to find a shape at the former placeholder's position"
 
 
+def test_fig_to_placeholder_by_name(artifacts: Path):
+    """fig_to_placeholder accepts a placeholder name string."""
+    prs = Presentation()
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+
+    # Layout 1 ("Title and Content") ships a body placeholder we can rename.
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    content_ph = next(
+        ph for ph in slide.placeholders if ph.placeholder_format.idx != 0
+    )
+    content_ph.name = "Graph_Placeholder_1"
+    expected_left = content_ph.left
+    expected_top = content_ph.top
+
+    fig = _line_fig()
+    fig_to_placeholder(fig, slide, "Graph_Placeholder_1")
+    plt.close(fig)
+
+    out = artifacts / "fig_to_placeholder_by_name.pptx"
+    prs.save(out)
+
+    prs2 = Presentation(out)
+    slide2 = prs2.slides[0]
+
+    # The named placeholder should have been removed.
+    assert all(ph.name != "Graph_Placeholder_1" for ph in slide2.placeholders)
+
+    # A shape should exist at the former placeholder's position.
+    matches = [
+        s for s in slide2.shapes
+        if s.left is not None
+        and abs(s.left - expected_left) < 20_000
+        and abs(s.top - expected_top) < 20_000
+    ]
+    assert matches, "expected a shape at the former placeholder's position"
+
+
+def test_fig_to_placeholder_by_name_not_found():
+    """fig_to_placeholder raises ValueError with a useful message on bad name."""
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank — no placeholders
+
+    fig = _line_fig()
+    with pytest.raises(ValueError, match="Graph_Placeholder_1"):
+        fig_to_placeholder(fig, slide, "Graph_Placeholder_1")
+    plt.close(fig)
+
+
 def test_backend_savefig_with_template(template_path: Path, artifacts: Path):
     """`fig.savefig("out.pptx", template=..., layout_index=...)` via the backend."""
     fig = _line_fig()

@@ -293,6 +293,9 @@ and covers enough of the broader SVG spec to be useful for other sources.
 - `prstGeom` emission for axis-aligned rectangles and ellipses (smaller
   output, crisper rendering, labelled as "Rectangle" / "Ellipse" in
   PowerPoint's selection pane).
+- Shape name pass-through: `artist.set_gid("!!my_bar")` → SVG
+  `id="!!my_bar"` → `cNvPr name="!!my_bar"` in DrawingML, enabling
+  PowerPoint's Morph transition to match shapes across slides by name.
 - `custGeom` fallback with cubic-Bézier approximation for rotated or
   skewed shapes.
 - Linear gradients → `<a:gradFill>` with stop-by-stop color + alpha.
@@ -303,6 +306,23 @@ and covers enough of the broader SVG spec to be useful for other sources.
   and theme.
 
 ## Limitations
+
+- **`ax.scatter()` does not support per-point shape names for Morph
+  animation.** matplotlib's SVG backend renders a scatter series as a single
+  `PathCollection`, emitting one `<g>` element that wraps many `<use>`
+  references — individual points carry no `id` attributes. `set_gid()` on
+  the collection names the group as a whole, not each marker. To give
+  individual scatter points distinct names for Office's Morph transition,
+  plot each point separately and call `set_gid()` on each artist:
+
+  ```python
+  for i, (x, y) in enumerate(zip(xs, ys)):
+      line, = ax.plot(x, y, 'o', color='steelblue')
+      line.set_gid(f'!!point_{i:02d}')
+  ```
+
+  This is a constraint of matplotlib's renderer interface, not of
+  `mpl-office`.
 
 - **`.docx` output is not yet implemented.** Word wraps shapes in a
   different container (`<wps:wsp>` inside `<w:drawing>`) and needs its

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//usr/local/**)",
+      "Bash(python3 -c \"import matplotlib; print\\(matplotlib.__file__\\)\")",
+      "Bash(cargo test *)",
+      "Bash(~/.cargo/bin/cargo test *)"
+    ]
+  }
+}

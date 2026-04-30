@@ -153,6 +153,7 @@ fn emit_node(
 ) {
     let transform = parent_transform.then(node.transform);
     let style = parent_style.cascade(&node.style);
+    let label = node.id.as_deref();
 
     match &node.kind {
         NodeKind::Group { children } => {
@@ -171,12 +172,13 @@ fn emit_node(
             }
             let bounds = extract_bounds(&inner).unwrap_or((0, 0, 0, 0));
             let gid = ctx.next_id();
+            let grp_name = label.map_or_else(|| format!("Group {gid}"), xml_escape);
             write!(
                 out,
                 concat!(
                     "<p:grpSp>",
                     "<p:nvGrpSpPr>",
-                    "<p:cNvPr id=\"{gid}\" name=\"Group {gid}\"/>",
+                    "<p:cNvPr id=\"{gid}\" name=\"{grp_name}\"/>",
                     "<p:cNvGrpSpPr/><p:nvPr/>",
                     "</p:nvGrpSpPr>",
                     "<p:grpSpPr>",
@@ -191,6 +193,7 @@ fn emit_node(
                     "</p:grpSp>"
                 ),
                 gid = gid,
+                grp_name = grp_name,
                 x = bounds.0,
                 y = bounds.1,
                 w = bounds.2.max(1),
@@ -200,31 +203,31 @@ fn emit_node(
             .unwrap();
         }
         NodeKind::Rect { x, y, w, h, rx, ry } => {
-            emit_rect(ctx, transform, &style, *x, *y, *w, *h, *rx, *ry, out);
+            emit_rect(ctx, transform, &style, *x, *y, *w, *h, *rx, *ry, label, out);
         }
         NodeKind::Ellipse { cx, cy, rx, ry } => {
-            emit_ellipse(ctx, transform, &style, *cx, *cy, *rx, *ry, out);
+            emit_ellipse(ctx, transform, &style, *cx, *cy, *rx, *ry, label, out);
         }
         NodeKind::Line { x1, y1, x2, y2 } => {
-            emit_line(ctx, transform, &style, *x1, *y1, *x2, *y2, out);
+            emit_line(ctx, transform, &style, *x1, *y1, *x2, *y2, label, out);
         }
         NodeKind::Polygon { points } => {
-            emit_poly(ctx, transform, &style, points, true, out);
+            emit_poly(ctx, transform, &style, points, true, label, out);
         }
         NodeKind::Polyline { points } => {
-            emit_poly(ctx, transform, &style, points, false, out);
+            emit_poly(ctx, transform, &style, points, false, label, out);
         }
         NodeKind::Path { cmds } => {
-            emit_path(ctx, transform, &style, cmds, out);
+            emit_path(ctx, transform, &style, cmds, label, out);
         }
         NodeKind::Text(t) => {
-            emit_text(ctx, transform, &style, t, out);
+            emit_text(ctx, transform, &style, t, label, out);
         }
         NodeKind::Image {
             x, y, w, h, data, ..
         } => {
             if let Some(img) = data {
-                emit_image(ctx, transform, *x, *y, *w, *h, img, out);
+                emit_image(ctx, transform, *x, *y, *w, *h, img, label, out);
             }
             // External file references with `data == None` are dropped — the
             // core crate has no filesystem access to resolve them. A future
@@ -257,6 +260,7 @@ fn emit_rect(
     h: f64,
     rx: f64,
     ry: f64,
+    label: Option<&str>,
     out: &mut String,
 ) {
     if w <= 0.0 || h <= 0.0 {
@@ -290,6 +294,7 @@ fn emit_rect(
             out,
             id,
             "Rectangle",
+            label,
             emu_x,
             emu_y,
             emu_w,
@@ -311,7 +316,7 @@ fn emit_rect(
         PathCmd::LineTo { x, y: y + h },
         PathCmd::Close,
     ];
-    emit_path(ctx, t, style, &cmds, out);
+    emit_path(ctx, t, style, &cmds, label, out);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,6 +328,7 @@ fn emit_ellipse(
     cy: f64,
     rx: f64,
     ry: f64,
+    label: Option<&str>,
     out: &mut String,
 ) {
     if rx <= 0.0 || ry <= 0.0 {
@@ -349,7 +355,7 @@ fn emit_ellipse(
         );
         let id = ctx.next_id();
         write_shape(
-            out, id, "Ellipse", emu_x, emu_y, emu_w, emu_h, 0, geom, &fill, &stroke, "",
+            out, id, "Ellipse", label, emu_x, emu_y, emu_w, emu_h, 0, geom, &fill, &stroke, "",
         );
         return;
     }
@@ -394,7 +400,7 @@ fn emit_ellipse(
         },
         PathCmd::Close,
     ];
-    emit_path(ctx, t, style, &cmds, out);
+    emit_path(ctx, t, style, &cmds, label, out);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -406,6 +412,7 @@ fn emit_line(
     y1: f64,
     x2: f64,
     y2: f64,
+    label: Option<&str>,
     out: &mut String,
 ) {
     let cmds = vec![
@@ -415,7 +422,7 @@ fn emit_line(
     // Lines ignore fill.
     let mut style = style.clone();
     style.fill = Paint::None;
-    emit_path(ctx, t, &style, &cmds, out);
+    emit_path(ctx, t, &style, &cmds, label, out);
 }
 
 fn emit_poly(
@@ -424,6 +431,7 @@ fn emit_poly(
     style: &Style,
     points: &[(f64, f64)],
     closed: bool,
+    label: Option<&str>,
     out: &mut String,
 ) {
     if points.len() < 2 {
@@ -444,10 +452,10 @@ fn emit_poly(
         // Polyline has no fill.
         style.fill = Paint::None;
     }
-    emit_path(ctx, t, &style, &cmds, out);
+    emit_path(ctx, t, &style, &cmds, label, out);
 }
 
-fn emit_path(ctx: &EmitContext, t: Affine, style: &Style, cmds: &[PathCmd], out: &mut String) {
+fn emit_path(ctx: &EmitContext, t: Affine, style: &Style, cmds: &[PathCmd], label: Option<&str>, out: &mut String) {
     if cmds.is_empty() {
         return;
     }
@@ -523,7 +531,7 @@ fn emit_path(ctx: &EmitContext, t: Affine, style: &Style, cmds: &[PathCmd], out:
 
     let id = ctx.next_id();
     write_shape(
-        out, id, "Freeform", emu_x, emu_y, emu_w, emu_h, 0, &geom, &fill, &stroke, "",
+        out, id, "Freeform", label, emu_x, emu_y, emu_w, emu_h, 0, &geom, &fill, &stroke, "",
     );
 }
 
@@ -536,6 +544,7 @@ fn emit_image(
     w: f64,
     h: f64,
     data: &ImageData,
+    label: Option<&str>,
     out: &mut String,
 ) {
     if w <= 0.0 || h <= 0.0 {
@@ -575,13 +584,14 @@ fn emit_image(
 
     let sentinel = ctx.next_image_sentinel(data);
     let id = ctx.next_id();
+    let name = label.map_or_else(|| format!("Image {id}"), xml_escape);
 
     write!(
         out,
         concat!(
             "<p:pic>",
             "<p:nvPicPr>",
-            "<p:cNvPr id=\"{id}\" name=\"Image {id}\"/>",
+            "<p:cNvPr id=\"{id}\" name=\"{name}\"/>",
             "<p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr>",
             "<p:nvPr/>",
             "</p:nvPicPr>",
@@ -599,6 +609,7 @@ fn emit_image(
             "</p:pic>"
         ),
         id = id,
+        name = name,
         sentinel = sentinel,
         flip_attrs = flip_attrs,
         x = emu_x,
@@ -609,7 +620,7 @@ fn emit_image(
     .unwrap();
 }
 
-fn emit_text(ctx: &EmitContext, t: Affine, style: &Style, text: &TextNode, out: &mut String) {
+fn emit_text(ctx: &EmitContext, t: Affine, style: &Style, text: &TextNode, label: Option<&str>, out: &mut String) {
     // We map text anchor position through the transform; font sizing uses
     // the transform's overall scale so rotated labels still read correctly.
     let (tx, ty) = t.transform_point(text.x, text.y);
@@ -677,11 +688,12 @@ fn emit_text(ctx: &EmitContext, t: Affine, style: &Style, text: &TextNode, out: 
     }
 
     let id = ctx.next_id();
+    let name = label.map_or_else(|| format!("TextBox {id}"), xml_escape);
     write!(out,
         concat!(
             "<p:sp>",
             "<p:nvSpPr>",
-            "<p:cNvPr id=\"{id}\" name=\"TextBox {id}\"/>",
+            "<p:cNvPr id=\"{id}\" name=\"{name}\"/>",
             "<p:cNvSpPr txBox=\"1\"/><p:nvPr/>",
             "</p:nvSpPr>",
             "<p:spPr>",
@@ -699,6 +711,7 @@ fn emit_text(ctx: &EmitContext, t: Affine, style: &Style, text: &TextNode, out: 
             "</p:sp>"
         ),
         id = id,
+        name = name,
         rot_attr = if rot != 0 { format!(" rot=\"{}\"", rot) } else { String::new() },
         x = emu_x,
         y = emu_y,
@@ -898,7 +911,8 @@ fn build_dash(dash: &Option<String>) -> String {
 fn write_shape(
     out: &mut String,
     id: i64,
-    name: &str,
+    type_name: &str,
+    label: Option<&str>,
     x: i64,
     y: i64,
     cx: i64,
@@ -909,6 +923,7 @@ fn write_shape(
     stroke: &str,
     extra: &str,
 ) {
+    let display_name = label.map_or_else(|| format!("{type_name} {id}"), xml_escape);
     let rot_attr = if rot != 0 {
         format!(" rot=\"{}\"", rot)
     } else {
@@ -919,7 +934,7 @@ fn write_shape(
         concat!(
             "<p:sp>",
             "<p:nvSpPr>",
-            "<p:cNvPr id=\"{id}\" name=\"{name} {id}\"/>",
+            "<p:cNvPr id=\"{id}\" name=\"{display_name}\"/>",
             "<p:cNvSpPr/><p:nvPr/>",
             "</p:nvSpPr>",
             "<p:spPr>",
@@ -931,7 +946,7 @@ fn write_shape(
             "</p:sp>"
         ),
         id = id,
-        name = xml_escape(name),
+        display_name = display_name,
         rot_attr = rot_attr,
         x = x,
         y = y,

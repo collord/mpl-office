@@ -455,7 +455,14 @@ fn emit_poly(
     emit_path(ctx, t, &style, &cmds, label, out);
 }
 
-fn emit_path(ctx: &EmitContext, t: Affine, style: &Style, cmds: &[PathCmd], label: Option<&str>, out: &mut String) {
+fn emit_path(
+    ctx: &EmitContext,
+    t: Affine,
+    style: &Style,
+    cmds: &[PathCmd],
+    label: Option<&str>,
+    out: &mut String,
+) {
     if cmds.is_empty() {
         return;
     }
@@ -620,7 +627,14 @@ fn emit_image(
     .unwrap();
 }
 
-fn emit_text(ctx: &EmitContext, t: Affine, style: &Style, text: &TextNode, label: Option<&str>, out: &mut String) {
+fn emit_text(
+    ctx: &EmitContext,
+    t: Affine,
+    style: &Style,
+    text: &TextNode,
+    label: Option<&str>,
+    out: &mut String,
+) {
     // We map text anchor position through the transform; font sizing uses
     // the transform's overall scale so rotated labels still read correctly.
     let (tx, ty) = t.transform_point(text.x, text.y);

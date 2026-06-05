@@ -46,3 +46,8 @@ manifest-path = "crates/mpl-office-py/Cargo.toml"
 module-name = "mpl_office._native"
 python-source = "python"
 features = ["pyo3/extension-module"]
+# Cargo's `license = "MIT"` makes maturin declare `License-File: LICENSE` in the
+# package metadata; PyPI rejects the upload (400) unless the file is actually
+# bundled. The LICENSE lives at the repo root, but manifest-path points maturin
+# at crates/mpl-office-py, so include it explicitly.
+include = [{ path = "LICENSE", format = ["sdist", "wheel"] }]

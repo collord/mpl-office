@@ -134,3 +134,8 @@ jobs:
         run: ls -la dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Tolerate files already on PyPI (e.g. an sdist re-uploaded across a
+          # retried run) instead of failing the step with "400 File already
+          # exists" after a successful upload.
+          skip-existing: true

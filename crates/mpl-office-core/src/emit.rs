@@ -167,6 +167,15 @@ fn emit_node(
             // Wrap in <p:grpSp> only when there's >1 shape; otherwise flatten.
             // We measure by counting top-level <p:sp> / <p:pic> / <p:grpSp>.
             if count_top_level_shapes(&inner) <= 1 {
+                // The group is collapsing away, but it may carry the only
+                // meaningful name in this subtree — e.g. matplotlib wraps each
+                // bar/marker in its own single-child `<g id="!!bar_Q1">`. That
+                // name is what PowerPoint's Morph transition matches on, so push
+                // it down onto the surviving shape (unless the child already has
+                // an explicit name of its own).
+                if let Some(name) = label {
+                    push_down_name(&mut inner, name);
+                }
                 out.push_str(&inner);
                 return;
             }
@@ -239,7 +248,17 @@ fn emit_node(
                 // A `<use>`'s x/y attributes translate the referenced symbol
                 // (they are NOT part of its `transform` attribute).
                 let use_shift = Affine::translate(*x, *y);
-                emit_node(sym, ctx, transform.then(use_shift), &style, out);
+                // Suppress the symbol definition's own id: it's a defs-internal
+                // identifier (e.g. matplotlib's `md4166c0c90`), not a meaningful
+                // shape name. Dropping it lets the instance take a default name —
+                // which an enclosing single-child group (e.g. `<g id="!!marker">`
+                // around a `<use>` marker) can then override via push_down_name,
+                // making `set_gid` work for `<use>`-backed artists too.
+                let instance = Node {
+                    id: None,
+                    ..(**sym).clone()
+                };
+                emit_node(&instance, ctx, transform.then(use_shift), &style, out);
             }
         }
     }
@@ -1036,6 +1055,44 @@ fn count_top_level_shapes(s: &str) -> usize {
     count
 }
 
+/// Rewrite the `name="..."` of the first (and only) shape in `inner` to
+/// `label`, so a collapsing single-child group can hand its name down to the
+/// surviving shape. No-op if the shape already carries an explicit (non-default)
+/// name — an inner id is more specific than the wrapper's and should win.
+///
+/// Every emitter writes exactly one `name="..."` per shape, on the `cNvPr`
+/// element, and auto-generated defaults have the form `TypeName N` (e.g.
+/// `Path 5`, `TextBox 3`). We treat anything matching that shape as a default
+/// that the group label may override.
+fn push_down_name(inner: &mut String, label: &str) {
+    const NEEDLE: &str = " name=\"";
+    let Some(start) = inner.find(NEEDLE) else {
+        return;
+    };
+    let val_start = start + NEEDLE.len();
+    let Some(rel_end) = inner[val_start..].find('"') else {
+        return;
+    };
+    let val_end = val_start + rel_end;
+    if !is_default_shape_name(&inner[val_start..val_end]) {
+        return;
+    }
+    inner.replace_range(val_start..val_end, &xml_escape(label));
+}
+
+/// True if `name` looks like an auto-generated default (`TypeName N`): one or
+/// more words followed by a single trailing integer (the shape id). Explicit
+/// `set_gid` names won't match this, so they're preserved.
+fn is_default_shape_name(name: &str) -> bool {
+    let Some((words, num)) = name.rsplit_once(' ') else {
+        return false;
+    };
+    !words.is_empty()
+        && !num.is_empty()
+        && num.bytes().all(|b| b.is_ascii_digit())
+        && words.bytes().all(|b| b.is_ascii_alphabetic() || b == b' ')
+}
+
 /// Extract the outer bounding box (in EMU) from a chunk of already-emitted
 /// shape XML — used for group wrapping.
 fn extract_bounds(s: &str) -> Option<(i64, i64, i64, i64)> {
@@ -1249,5 +1306,86 @@ mod tests {
         let ctx = EmitContext::from_options(&doc, &opts);
         let out2 = emit_document(&doc, &ctx);
         assert!(out2.contains("cx=\"6858000\""));
+    }
+
+    #[test]
+    fn single_child_group_id_lands_on_shape_name() {
+        // matplotlib wraps each bar/marker in its own single-child <g id="...">.
+        // That group collapses on flatten, but the id is what Morph matches on,
+        // so it must survive as the surviving shape's cNvPr name.
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <g id="!!bar_Q1"><path d="M0 0 L10 0 L10 10 Z" fill="blue"/></g>
+        </svg>"##,
+        );
+        assert!(
+            out.contains("name=\"!!bar_Q1\""),
+            "group id should be pushed down to the flattened shape; got: {out}"
+        );
+        // And it must be the only shape — the group itself was flattened away.
+        assert!(!out.contains("<p:grpSp>"));
+    }
+
+    #[test]
+    fn explicit_child_name_wins_over_wrapper() {
+        // If the child shape carries its own id, that's more specific than the
+        // collapsing wrapper's — keep the child's, drop the wrapper's.
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <g id="!!wrapper"><rect id="!!inner" x="0" y="0" width="10" height="10" fill="red"/></g>
+        </svg>"##,
+        );
+        assert!(out.contains("name=\"!!inner\""));
+        assert!(!out.contains("!!wrapper"));
+    }
+
+    #[test]
+    fn multi_child_group_keeps_its_own_name() {
+        // A >1-child group is NOT flattened; its name stays on the grpSp and the
+        // children keep their default names. (No push-down here.)
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <g id="!!figure">
+                <rect x="0" y="0" width="10" height="10" fill="red"/>
+                <rect x="20" y="20" width="10" height="10" fill="blue"/>
+            </g>
+        </svg>"##,
+        );
+        assert!(out.contains("<p:grpSp>"));
+        assert!(out.contains("name=\"!!figure\""));
+    }
+
+    #[test]
+    fn use_marker_group_id_overrides_symbol_def_id() {
+        // matplotlib's `ax.plot(..., "o")` markers render as a <defs> symbol
+        // plus a <use>, all wrapped in `<g id="!!marker">`. The symbol's own
+        // defs id must NOT win as the shape name — the enclosing gid must.
+        let out = convert(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <g id="!!marker">
+                <defs><path id="md4166c0c90" d="M0 9 L9 0 L0 -9 Z"/></defs>
+                <use xlink:href="#md4166c0c90" x="50" y="50"/>
+            </g>
+        </svg>"##,
+        );
+        assert!(
+            out.contains("name=\"!!marker\""),
+            "use-backed marker should carry its group gid; got: {out}"
+        );
+        assert!(
+            !out.contains("md4166c0c90"),
+            "symbol def id should not leak as a shape name; got: {out}"
+        );
+    }
+
+    #[test]
+    fn is_default_shape_name_classifies() {
+        assert!(is_default_shape_name("Path 5"));
+        assert!(is_default_shape_name("TextBox 12"));
+        assert!(is_default_shape_name("Group 1"));
+        assert!(!is_default_shape_name("!!bar_Q1"));
+        assert!(!is_default_shape_name("Path"));
+        assert!(!is_default_shape_name("5"));
+        assert!(!is_default_shape_name("Revenue Chart"));
     }
 }

@@ -211,6 +211,37 @@ Duplicated images (e.g. two subplots with the same bitmap) are
 deduplicated automatically by `python-pptx`'s image cache, so the output
 file only stores each unique PNG once.
 
+### Morph transitions: naming shapes for animation
+
+PowerPoint's Morph transition animates between two slides by matching shapes
+that share a *name* — a bar tagged `bar_Q1` on both slides is understood as
+the same object in two states, so Morph tweens its position and size instead
+of crossfading. `mpl-office` lets you set those names from matplotlib:
+`artist.set_gid("!!name")` flows through to `cNvPr name="!!name"` in the
+DrawingML. (The `!!` prefix is what survives matplotlib's SVG backend as an
+`id`; the name itself is whatever you choose.)
+
+![Animated Gapminder scatter morphing between years](https://raw.githubusercontent.com/collord/mpl-office/main/docs/gapminder_scatter_animate.gif)
+
+The animation above is a fertility-vs-life-expectancy bubble scatter, one
+slide per year, with each country's bubble carrying the same name across every
+slide — so Morph slides and resizes every bubble to its new value as the years
+advance. Give each point its *own* artist (one `scatter`/`plot` call per point)
+so each gets a distinct, matchable name:
+
+```python
+for code, x, y, pop in points:
+    ax.scatter([x], [y], s=area(pop)).set_gid(f"!!bubble_{code}")
+```
+
+Two things matter for Morph to actually tween rather than crossfade: (1) the
+same name on both slides, and (2) each named shape must sit at the slide's top
+level — PowerPoint matches shapes in the Selection Pane and won't descend into
+groups, so dissolve the figure/axes groups before saving. See
+[`examples/demo_scatter_morph.py`](examples/demo_scatter_morph.py) for a
+complete, runnable example that also injects the Morph transition into the
+slide XML so the result plays with no manual step.
+
 ### Using the converter directly
 
 The low-level API takes a raw SVG string and returns a DrawingML XML
@@ -303,22 +334,14 @@ and covers enough of the broader SVG spec to be useful for other sources.
 
 ## Limitations
 
-- **`ax.scatter()` does not support per-point shape names for Morph
-  animation.** matplotlib's SVG backend renders a scatter series as a single
-  `PathCollection`, emitting one `<g>` element that wraps many `<use>`
-  references — individual points carry no `id` attributes. `set_gid()` on
-  the collection names the group as a whole, not each marker. To give
-  individual scatter points distinct names for Office's Morph transition,
-  plot each point separately and call `set_gid()` on each artist:
-
-  ```python
-  for i, (x, y) in enumerate(zip(xs, ys)):
-      line, = ax.plot(x, y, 'o', color='steelblue')
-      line.set_gid(f'!!point_{i:02d}')
-  ```
-
-  This is a constraint of matplotlib's renderer interface, not of
-  `mpl-office`.
+- **A multi-point `ax.scatter()` series can't name its points
+  individually.** matplotlib's SVG backend renders a scatter series as a
+  single `PathCollection` — one `<g>` wrapping many `<use>` references with no
+  per-marker `id`s — so `set_gid()` on the collection names the group, not each
+  marker. This is a constraint of matplotlib's renderer interface, not of
+  `mpl-office`. The fix is to give each point its own artist (one `scatter` or
+  `plot` call per point) so each carries a distinct name; see the "Morph
+  transitions" section under Usage for the working pattern.
 
 - **`.docx` output is not yet implemented.** Word wraps shapes in a
   different container (`<wps:wsp>` inside `<w:drawing>`) and needs its

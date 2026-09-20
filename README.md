@@ -174,6 +174,93 @@ fig.savefig(
 )
 ```
 
+### Word documents
+
+`.docx` output works the same way, through `mpl_office.docx`. Word uses a
+different element vocabulary for the same DrawingML geometry, so the
+shapes are rewritten on the way in — but the result is identical in
+spirit: native, editable vector art, not a pasted bitmap.
+
+```python
+from docx import Document
+from mpl_office.docx import Inches, fig_to_document
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.bar(["Q1", "Q2", "Q3", "Q4"], [4.2, 5.1, 6.8, 7.5], color="#2E86AB")
+ax.set_title("Revenue")
+
+doc = Document("report_template.docx")
+doc.add_heading("Quarterly revenue", level=1)
+fig_to_document(fig, doc, width=Inches(6))   # height follows the aspect ratio
+doc.save("report.docx")
+```
+
+Passing only `width` (or only `height`) scales the other dimension to
+preserve the figure's aspect ratio. Passing both fits the figure to that
+exact box.
+
+The figure lands as a single grouped drawing anchored in its own
+paragraph. You can also target an existing paragraph or a table cell
+directly — useful for replacing a `{{CHART}}` marker in a template, or
+laying figures out in a grid:
+
+```python
+placeholder = next(p for p in doc.paragraphs if p.text == "{{CHART}}")
+placeholder.text = ""
+fig_to_document(fig, placeholder, width=Inches(6))
+
+table = doc.add_table(rows=1, cols=2)
+fig_to_document(fig_left, table.cell(0, 0), width=Inches(3))
+fig_to_document(fig_right, table.cell(0, 1), width=Inches(3))
+```
+
+By default a figure is **inline**: it sits in the text flow like a very
+large character. Pass `anchor="floating"` to position it independently and
+have body text wrap around it:
+
+```python
+fig_to_document(
+    fig, doc,
+    width=Inches(3),
+    anchor="floating",
+    position=("right", Inches(0.25)),      # EMU offsets or keywords
+    relative_to=("margin", "paragraph"),   # what each axis is measured against
+    wrap="square",                         # square/tight/through/topAndBottom/none
+)
+```
+
+`position` takes an EMU offset or an alignment keyword (`"left"`,
+`"right"`, `"center"`, `"top"`, `"bottom"`, `"inside"`, `"outside"`) per
+axis. `behind_text=True` puts the drawing behind the text, which is how
+you'd build a watermark:
+
+```python
+fig_to_document(
+    fig, doc,
+    width=Inches(6),
+    anchor="floating",
+    position=("center", "center"),
+    relative_to=("page", "page"),
+    wrap="none",
+    behind_text=True,
+)
+```
+
+And via the matplotlib backend:
+
+```python
+fig.savefig("chart.docx", backend="module://mpl_office.backend")
+
+# Into an existing document, scaled to a column width
+fig.savefig(
+    "chart.docx",
+    backend="module://mpl_office.backend",
+    template="report_template.docx",
+    width_inches=6,
+)
+```
+
 ### Raster images (`imshow`, colorbars, heatmaps)
 
 Figures with `imshow` and rasterized colorbar cells work out of the box.
@@ -343,10 +430,15 @@ and covers enough of the broader SVG spec to be useful for other sources.
   `plot` call per point) so each carries a distinct name; see the "Morph
   transitions" section under Usage for the working pattern.
 
-- **`.docx` output is not yet implemented.** Word wraps shapes in a
-  different container (`<wps:wsp>` inside `<w:drawing>`) and needs its
-  own rewrite pass. `fig.savefig("x.docx", backend=...)` raises
-  `NotImplementedError`.
+- **Word figures are one grouped drawing, not a live chart.** `.docx`
+  output is fully supported, inline or floating, and you can ungroup the
+  figure and edit it shape by shape. But there is no Word equivalent of
+  PowerPoint's Morph transition, so shape names carry no animation
+  meaning there. Note also that Word has no true *inline group*: an
+  inline figure is anchored to its paragraph and flows with the text as
+  you'd expect, but Word exposes it through `Document.Shapes` rather than
+  `Document.InlineShapes`, which matters only if you post-process the
+  file with VBA or COM.
 - **External `<image>` file references are dropped.** Images embedded
   as `data:image/...;base64,...` URIs are fully supported (this is
   what matplotlib emits), but `<image xlink:href="photo.png"/>` style

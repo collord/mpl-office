@@ -8,7 +8,7 @@
 > `<use>`/`<defs>`, raster `<image>` embedding (imshow, colorbars), the
 > pptx injection layer, template workflows, and the matplotlib backend
 > all work end-to-end, with 55 Rust unit tests and 25 Python pytest
-> tests. Deferred for later: `.docx` output and clip-path geometric
+> tests. Deferred for later: clip-path geometric
 > intersection. The sections below have been updated to reflect the
 > choices that were actually made while implementing.
 
@@ -499,12 +499,16 @@ Text is the highest-risk element. Font metrics differ between SVG rendering and 
   - [ ] `fig_to_placeholder(fig, placeholder)` — same but auto-sized to placeholder bounds
   - [ ] Handle `<p:grpSp>` wrapper with `<a:xfrm>` for positioning/scaling within target region
   - [ ] Relationship registration for any embedded images
-- [ ] docx integration module:
-  - [ ] `fig_to_document(fig, doc, width, anchor)` — inject as inline or floating drawing
-  - [ ] DrawingML wrapped in `<w:drawing><wp:inline>` or `<wp:anchor>` with appropriate extents
+- [x] docx integration module:
+  - [x] `fig_to_document(fig, doc, width, height)` — inject as an inline drawing;
+        also accepts a paragraph or table cell as the target
+  - [x] DrawingML wrapped in `<w:drawing><wp:inline>` with appropriate extents
+  - [x] PresentationML → WordprocessingML rewrite pass (see Risks #5)
+  - [x] Floating (`<wp:anchor>`) placement, with position/wrap/behind-text
+        options; `anchor="inline"|"floating"` selects the envelope
 - [ ] matplotlib backend module:
   - [ ] `FigureCanvasOffice` class inheriting `FigureCanvasSVG`
-  - [ ] `print_pptx()` and `print_docx()` methods
+  - [x] `print_pptx()` and `print_docx()` methods
   - [ ] `backend` module registration for `matplotlib.use('module://mpl_office.backend')`
 - [ ] Template support:
   - [ ] `template=` parameter on `savefig` and integration functions
@@ -614,8 +618,10 @@ Text is the highest-risk element. Font metrics differ between SVG rendering and 
    these libraries' object models means depending on their internal
    structure (`slide.shapes._spTree`, `placeholder._element`). These
    aren't public APIs. The `_inject.py` module centralises every such
-   access so a future version bump only needs to touch one file. `docx`
-   injection is deferred (see #5).
+   access so a future version bump only needs to touch one file. The Word
+   side uses `StoryPart.get_or_add_image` and appends the `w:drawing` to a
+   run, which are the closest things python-docx offers to a public API
+   for this (see #5).
 
 4. **3D plots.** matplotlib's 3D projection produces SVG paths (it's all
    2D by the time it hits the backend). These will convert fine
@@ -623,12 +629,44 @@ Text is the highest-risk element. Font metrics differ between SVG rendering and 
    complexity threshold that falls back to raster for extremely dense
    plots.
 
-5. **`.docx` output. (Deferred.)** The initial `backend.print_docx`
-   raises `NotImplementedError`. Word's drawing model wraps shapes in
+5. **`.docx` output. (Resolved.)** Word's drawing model wraps shapes in
    `<w:drawing><wp:inline>…<wps:wsp>` rather than `<p:sp>` directly, so
-   the pptx emitter's output needs a second rewrite pass. An early
-   prototype lived in `_inject.py` but was removed to keep v1 focused.
-   Revisit after a user actually asks for it.
+   the emitter's PresentationML output goes through a rewrite pass in
+   `_inject.presentationml_to_wordml`: `p:sp`→`wps:wsp`,
+   `p:grpSp`→`wpg:wgp`, `p:pic`→`pic:pic`, `p:nvSpPr`/`p:nvGrpSpPr`
+   unwrapped, `p:nvPr` dropped, and `p:txBody` rebuilt as
+   `wps:txbx/w:txbxContent` with DrawingML paragraphs converted to
+   WordprocessingML ones (`a:p`→`w:p`, `a:r`→`w:r`, `sz` hundredths of a
+   point → half-points). `build_word_drawing` then wraps everything in a
+   single `wpg:wgp` whose `chOff`/`chExt` map the shapes' union bounds
+   onto the requested on-page box. Two structural rules are non-negotiable
+   — Word refuses to open the file otherwise, and both were found by
+   opening real output in Word rather than by reading the schema:
+
+   - every `wps:wsp` must end with a `wps:bodyPr`, even shapes with no
+     text at all;
+   - every `wpg:wgp` needs its own `wpg:cNvPr`, or Word treats the whole
+     drawing as a locked group that cannot be ungrouped.
+
+   The Rust core is unchanged: it still emits one PresentationML dialect
+   and the Python layer adapts it per destination.
+
+   Floating placement (`<wp:anchor>`) reuses all of the above: the
+   `a:graphic` payload is byte-identical and only the envelope differs, so
+   it is a second wrapper around the same `_append_graphic` helper rather
+   than a second conversion path. `wp:anchor`'s children are an ordered
+   sequence (`simplePos`, `positionH`, `positionV`, `extent`,
+   `effectExtent`, wrap element, `docPr`, `cNvGraphicFramePr`, `graphic`)
+   and Word rejects the file if they are out of order, so a test pins the
+   ordering rather than just their presence.
+
+   One Word quirk worth recording: there is no true *inline group*. A
+   `wp:inline` whose payload is a `wpg:wgp` is anchored to its paragraph
+   and flows with the text correctly, but Word surfaces it in
+   `Document.Shapes`, not `Document.InlineShapes` (a `wp:inline` holding a
+   `pic:pic` does land in `InlineShapes`). This is Word's own behaviour,
+   not an artefact of our XML, and it only matters to COM/VBA
+   post-processing.
 
 6. **`<image>` emission. (Resolved.)** Inline `data:image/...;base64,...`
    URIs are decoded in the parser (see `parse::decode_data_uri`), stored

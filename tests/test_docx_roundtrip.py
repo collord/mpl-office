@@ -6,8 +6,10 @@ These tests verify that:
   * The resulting .docx is valid OOXML (python-docx can read it back).
   * The PresentationML → WordprocessingML rewrite leaves no `p:` shape
     elements behind, and satisfies the structural rules Word enforces
-    (every `wps:wsp` ends with a `wps:bodyPr`, every `wpg:wgp` carries a
-    `wpg:cNvPr`). Word refuses to open the file when either is violated.
+    (every `wps:wsp` ends with a `wps:bodyPr`, every group carries a
+    `wpg:cNvPr`, and only the root group is a `wpg:wgp` — nested ones are
+    `wpg:grpSp`). Word refuses to open, or silently fails to draw, a file
+    that violates these.
 """
 from __future__ import annotations
 
@@ -81,6 +83,29 @@ def _assert_word_structural_rules(root: etree._Element) -> None:
             wgp.find("wpg:cNvPr", NS) is not None
         ), "every wpg:wgp needs a wpg:cNvPr or Word locks the group"
 
+    # `wpg:wgp` is the root element of a wordprocessingGroup and is valid only
+    # as the direct child of `a:graphicData`; nested groups must use
+    # `wpg:grpSp`. Word silently drops a subtree rooted at a misplaced `wgp`
+    # and renders correctly-sized empty space.
+    for drawing in root.findall(".//w:drawing", NS):
+        roots = drawing.findall(".//a:graphicData/wpg:wgp", NS)
+        assert len(roots) == 1, "a drawing needs exactly one root wpg:wgp"
+        assert not roots[0].findall(
+            ".//wpg:wgp", NS
+        ), "nested groups must be wpg:grpSp, not wpg:wgp"
+
+    for grp_sp in root.findall(".//wpg:grpSp", NS):
+        assert (
+            grp_sp.find("wpg:cNvPr", NS) is not None
+        ), "every wpg:grpSp needs a wpg:cNvPr or Word locks the group"
+        # CT_WordprocessingGroup requires this leading sequence.
+        order = [etree.QName(c).localname for c in grp_sp[:3]]
+        assert order == [
+            "cNvPr",
+            "cNvGrpSpPr",
+            "grpSpPr",
+        ], "wpg:grpSp children out of schema order: %s" % order
+
     # No PresentationML shape vocabulary may survive the rewrite.
     for leftover in ("sp", "grpSp", "pic", "nvPr", "txBody"):
         assert not root.findall(".//p:%s" % leftover, NS), (
@@ -127,8 +152,12 @@ def test_group_becomes_word_group(artifacts: Path):
     doc.save(out_path)
 
     root = _document_xml(out_path)
-    # The outer wrapper group plus the converted SVG <g>.
-    assert len(root.findall(".//wpg:wgp", NS)) >= 2
+    # Exactly one root `wpg:wgp` — it is only valid directly under
+    # `a:graphicData` — with the converted SVG <g> nested inside it as a
+    # `wpg:grpSp`. Emitting a nested group as `wgp` makes Word drop the
+    # subtree and render a blank box.
+    assert len(root.findall(".//wpg:wgp", NS)) == 1
+    assert len(root.findall(".//wpg:grpSp", NS)) >= 1
     assert len(root.findall(".//wps:wsp", NS)) == 3
     _assert_word_structural_rules(root)
 
@@ -359,3 +388,38 @@ def test_invalid_anchor_options_raise(kwargs, message):
     doc = Document()
     with pytest.raises(ValueError, match=message):
         svg_to_document(RECT_SVG, doc, width=Inches(2), height=Inches(1), **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Regression test for the blank-box bug in 0.0.6's .docx output.
+# ---------------------------------------------------------------------------
+
+
+def test_nested_group_is_grpsp_not_wgp(artifacts: Path):
+    """Regression: nested groups emitted as `wpg:wgp` render as a blank box.
+
+    `wpg:wgp` is the root element of a wordprocessingGroup and is only valid
+    directly under `a:graphicData`. Word does not recognise it as a child of
+    another group, drops the whole subtree, and draws the surviving empty root
+    group at the requested size — correctly sized, completely blank.
+    """
+    doc = Document()
+    svg_to_document(GROUP_SVG, doc, width=Inches(4), height=Inches(4), source_dpi=96.0)
+    out_path = artifacts / "nested_group_grpsp.docx"
+    doc.save(out_path)
+
+    root = _document_xml(out_path)
+    graphic_roots = root.findall(".//a:graphicData/wpg:wgp", NS)
+    assert len(graphic_roots) == 1, "exactly one root group per drawing"
+
+    # Nothing below the root may be a `wgp`.
+    assert not graphic_roots[0].findall(".//wpg:wgp", NS)
+    # The SVG's <g> must still be there, as a nested group.
+    assert graphic_roots[0].findall(".//wpg:grpSp", NS)
+
+    # The shapes must survive inside the nested group, not just at the root —
+    # that is the difference between a drawn figure and an empty box.
+    nested = graphic_roots[0].find(".//wpg:grpSp", NS)
+    assert len(nested.findall(".//wps:wsp", NS)) == 3
+
+    _assert_word_structural_rules(root)

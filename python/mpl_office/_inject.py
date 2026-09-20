@@ -118,9 +118,9 @@ def append_to_sptree_with_images(
 #
 # The Rust core emits PresentationML-flavoured shapes (`p:sp`, `p:grpSp`,
 # `p:pic`). Word expresses the same DrawingML geometry with a different
-# vocabulary: shapes are `wps:wsp`, groups are `wpg:wgp`, pictures are
-# `pic:pic`, and the tree hangs off a `w:drawing` / `wp:inline` anchor rather
-# than a `p:spTree`. Crucially the `a:` geometry, fill, stroke and text-run
+# vocabulary: shapes are `wps:wsp`, groups are `wpg:wgp` at the root and
+# `wpg:grpSp` when nested, pictures are `pic:pic`, and the tree hangs off a
+# `w:drawing` / `wp:inline` anchor rather than a `p:spTree`. Crucially the `a:` geometry, fill, stroke and text-run
 # elements are identical in both worlds — that is what makes a mechanical
 # rewrite viable instead of a second emitter in the Rust core.
 # ---------------------------------------------------------------------------
@@ -200,7 +200,13 @@ def _convert_shape_element(el: etree._Element) -> List[etree._Element]:
     if tag == _qp("sp"):
         el.tag = _qwps("wsp")
     elif tag == _qp("grpSp"):
-        el.tag = _qwpg("wgp")
+        # `wpg:wgp` is the root element of a wordprocessingGroup and is only
+        # valid directly under `a:graphicData`; every descendant group uses
+        # the same CT_WordprocessingGroup type under the name `wpg:grpSp`.
+        # `_append_graphic` supplies the one root `wgp`, so every group that
+        # reaches this rewrite is nested by construction. Emitting `wgp` here
+        # makes Word drop the whole subtree and draw an empty box.
+        el.tag = _qwpg("grpSp")
     elif tag == _qp("pic"):
         el.tag = _qpic("pic")
     elif tag in _RENAME:
@@ -327,14 +333,16 @@ def _a_r_to_w_r(a_r: etree._Element) -> etree._Element:
 def _reparent_cnvpr(root: etree._Element) -> None:
     """Re-namespace every `cNvPr` to match the vocabulary of its parent.
 
-    `wps:wsp` wants `wps:cNvPr`, `wpg:wgp` wants `wpg:cNvPr`, and
-    `pic:nvPicPr` wants `pic:cNvPr`. This runs as a post-pass because the
-    correct namespace depends on the parent, which is only settled once the
-    tree has been reassembled.
+    `wps:wsp` wants `wps:cNvPr`, both group flavours (`wpg:wgp` at the root
+    and `wpg:grpSp` when nested) want `wpg:cNvPr`, and `pic:nvPicPr` wants
+    `pic:cNvPr`. This runs as a post-pass because the correct namespace
+    depends on the parent, which is only settled once the tree has been
+    reassembled.
     """
     owner = {
         _qwps("wsp"): _qwps("cNvPr"),
         _qwpg("wgp"): _qwpg("cNvPr"),
+        _qwpg("grpSp"): _qwpg("cNvPr"),
         _qpic("nvPicPr"): _qpic("cNvPr"),
     }
     for parent in root.iter():
@@ -350,8 +358,8 @@ def presentationml_to_wordml(xml: str) -> List[etree._Element]:
     """Rewrite a PresentationML shape fragment into Word shape elements.
 
     Takes the raw fragment emitted by the Rust core and returns top-level
-    `wps:wsp` / `wpg:wgp` / `pic:pic` elements, ready to be placed inside the
-    `wpg:wgp` group of a `w:drawing` anchor.
+    `wps:wsp` / `wpg:grpSp` / `pic:pic` elements, ready to be placed inside
+    the root `wpg:wgp` group of a `w:drawing` anchor.
     """
     converted: List[etree._Element] = []
     for el in parse_drawingml_fragment(xml):

@@ -458,11 +458,12 @@ and covers enough of the broader SVG spec to be useful for other sources.
   output is fully supported, inline or floating, and you can ungroup the
   figure and edit it shape by shape. But there is no Word equivalent of
   PowerPoint's Morph transition, so shape names carry no animation
-  meaning there. Note also that Word has no true *inline group*: an
-  inline figure is anchored to its paragraph and flows with the text as
-  you'd expect, but Word exposes it through `Document.Shapes` rather than
-  `Document.InlineShapes`, which matters only if you post-process the
-  file with VBA or COM.
+  meaning there. Note also that an inline figure, while anchored to its
+  paragraph and flowing with the text as you'd expect, is exposed through
+  `Document.Shapes` (with `WrapFormat.Type = wdWrapInline`) rather than
+  `Document.InlineShapes` — Word reserves the latter for pictures, OLE
+  objects and ActiveX controls, so no drawing-shape figure can appear
+  there. This matters only if you post-process the file with VBA or COM.
 - **External `<image>` file references are dropped.** Images embedded
   as `data:image/...;base64,...` URIs are fully supported (this is
   what matplotlib emits), but `<image xlink:href="photo.png"/>` style

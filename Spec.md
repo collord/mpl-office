@@ -660,13 +660,19 @@ Text is the highest-risk element. Font metrics differ between SVG rendering and 
    and Word rejects the file if they are out of order, so a test pins the
    ordering rather than just their presence.
 
-   One Word quirk worth recording: there is no true *inline group*. A
-   `wp:inline` whose payload is a `wpg:wgp` is anchored to its paragraph
-   and flows with the text correctly, but Word surfaces it in
-   `Document.Shapes`, not `Document.InlineShapes` (a `wp:inline` holding a
-   `pic:pic` does land in `InlineShapes`). This is Word's own behaviour,
-   not an artefact of our XML, and it only matters to COM/VBA
-   post-processing.
+   One Word quirk worth recording: a DrawingML figure never appears in
+   `Document.InlineShapes`. A `wp:inline` whose payload is a `wpg:wgp` is
+   anchored to its paragraph and flows with the text correctly, but Word
+   surfaces it in `Document.Shapes` with `WrapFormat.Type = wdWrapInline`
+   (7) instead. This is the documented object model rather than anything
+   to do with grouping: per the `InlineShape` reference, "an inline shape
+   can only be a picture, an OLE object, or an ActiveX control", and
+   "you can convert only pictures, OLE objects, and ActiveX controls to
+   inline shapes". A lone `wps:wsp` with no group around it behaves the
+   same way, while a `wp:inline` holding a `pic:pic` does land in
+   `InlineShapes` — the payload's kind is what decides it. It matters
+   only to COM/VBA post-processing, which should read `Document.Shapes`
+   and filter on `WrapFormat.Type`.
 
 6. **`<image>` emission. (Resolved.)** Inline `data:image/...;base64,...`
    URIs are decoded in the parser (see `parse::decode_data_uri`), stored

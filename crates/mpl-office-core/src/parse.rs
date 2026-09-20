@@ -617,7 +617,11 @@ fn parse_points(s: &str) -> Vec<(f64, f64)> {
         .filter(|t| !t.is_empty())
         .filter_map(|t| t.parse::<f64>().ok())
         .collect();
-    nums.chunks_exact(2).map(|c| (c[0], c[1])).collect()
+    nums.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[x, y]| (x, y))
+        .collect()
 }
 
 /// Decode a `data:image/<fmt>;base64,...` URI into its raw bytes.

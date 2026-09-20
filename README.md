@@ -67,6 +67,30 @@ uv run pytest
 
 Requires Rust ≥ 1.70 and Python ≥ 3.9.
 
+#### Windows without Visual Studio
+
+Rust needs a C linker. The usual answer is the MSVC Build Tools, but that
+wants elevation, which you may not have on a managed machine. The GNU
+toolchain is an all-per-user alternative — no admin rights:
+
+```powershell
+# 1. Rust, targeting the GNU ABI rather than MSVC
+curl -sSL -o rustup-init.exe https://win.rustup.rs/x86_64
+.\rustup-init.exe -y --default-host x86_64-pc-windows-gnu
+
+# 2. MinGW-w64 for the linker (UCRT runtime, matching the -gnu target)
+winget install BrechtSanders.WinLibs.POSIX.UCRT
+```
+
+Both put themselves on your user `PATH`; open a new shell afterwards so
+it takes effect. Then `uv sync --all-extras` and `cargo test` work as
+above.
+
+One caveat worth knowing: `x86_64-pc-windows-gnu` is a *different ABI*
+from the `x86_64-pc-windows-msvc` wheels published to PyPI. It is fine
+for local development and for running the test suite, but a local pass
+does not fully guarantee the MSVC build — CI still has the last word.
+
 ## Usage
 
 ### The matplotlib backend

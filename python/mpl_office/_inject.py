@@ -299,9 +299,9 @@ def _a_r_to_w_r(a_r: etree._Element) -> etree._Element:
                 rfonts.set(_qw(attr), typeface)
 
         # `w:rPr`'s children are an ordered sequence in the schema (CT_RPr):
-        # rFonts, b, i, color, sz, szCs. Word is strict about this, so the
-        # elements are appended in exactly that order rather than the order
-        # they happen to appear in the DrawingML source.
+        # rFonts, b, i, color, sz, szCs, vertAlign. Word is strict about this,
+        # so the elements are appended in exactly that order rather than the
+        # order they happen to appear in the DrawingML source.
         if a_rpr.get("b") == "1":
             etree.SubElement(w_rpr, _qw("b"))
         if a_rpr.get("i") == "1":
@@ -321,6 +321,20 @@ def _a_r_to_w_r(a_r: etree._Element) -> etree._Element:
             if half_points is not None:
                 for tag in ("sz", "szCs"):
                     etree.SubElement(w_rpr, _qw(tag)).set(_qw("val"), str(half_points))
+
+        # DrawingML carries sub/superscript as a signed percentage baseline
+        # shift; Word has a dedicated element instead. The sign is all that
+        # matters — Word picks its own offset for each.
+        baseline = a_rpr.get("baseline")
+        if baseline:
+            try:
+                shift = int(baseline)
+            except ValueError:
+                shift = 0
+            if shift:
+                etree.SubElement(w_rpr, _qw("vertAlign")).set(
+                    _qw("val"), "superscript" if shift > 0 else "subscript"
+                )
 
     a_t = a_r.find(_qa("t"))
     w_t = etree.SubElement(w_r, _qw("t"))

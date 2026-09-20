@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 use crate::color::{alpha_to_drawingml, parse_color, Color};
 use crate::coord::{px_to_emu, ANGLE_UNIT, EMU_PER_INCH, FONT_PX_TO_HUNDREDTHS_PT};
 use crate::ir::{
-    DefEntry, ImageData, IrDocument, LinearGradient, Node, NodeKind, TextNode, TextRun,
+    DefEntry, ImageData, IrDocument, LinearGradient, Node, NodeKind, TextNode, TextRun, VertAlign,
 };
 use crate::path::{bbox, transform_cmds, PathCmd};
 use crate::style::{Paint, Style};
@@ -658,7 +658,23 @@ fn emit_text(
     // the transform's overall scale so rotated labels still read correctly.
     let (tx, ty) = t.transform_point(text.x, text.y);
     let scale = scale_factor(&t);
-    let font_size = style.font_size.unwrap_or(16.0) * scale;
+    // Mathtext `<text>` elements carry no style of their own — matplotlib puts
+    // the size on each glyph's `<tspan>` — so fall back to the largest run
+    // size before the hard default, or the text box is laid out at 16px and
+    // every run in it comes out roughly twice the intended size.
+    let run_font_size = text
+        .runs
+        .iter()
+        .filter_map(|r| r.style.font_size)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let base_font_size = style.font_size.unwrap_or_else(|| {
+        if run_font_size.is_finite() {
+            run_font_size
+        } else {
+            16.0
+        }
+    });
+    let font_size = base_font_size * scale;
     let sz = (font_size * FONT_PX_TO_HUNDREDTHS_PT).round() as i64;
 
     // Very crude width estimate — matches the reference implementation.
@@ -692,7 +708,10 @@ fn emit_text(
 
     // Rotation extracted from the affine.
     let rot_rad = t.b.atan2(t.a);
-    let rot = (rot_rad.to_degrees() * ANGLE_UNIT as f64).round() as i64;
+    // `ST_PositiveFixedAngle` is conventionally non-negative, so a rotated
+    // label reads as 270 degrees rather than -90. Both render identically,
+    // but the normalized form is what Office itself writes.
+    let rot = ((rot_rad.to_degrees().rem_euclid(360.0)) * ANGLE_UNIT as f64).round() as i64;
 
     let fill_color = match style.effective_fill() {
         Paint::Color(c) => c,
@@ -707,7 +726,7 @@ fn emit_text(
 
     let mut runs_xml = String::new();
     for run in &text.runs {
-        write_text_run(&mut runs_xml, run, style, fill_color, sz);
+        write_text_run(&mut runs_xml, run, style, fill_color, sz, scale);
     }
     if runs_xml.is_empty() {
         // Single-run fallback when runs are empty but text has content.
@@ -716,8 +735,9 @@ fn emit_text(
             style: Style::default(),
             x: None,
             y: None,
+            vert_align: VertAlign::Baseline,
         };
-        write_text_run(&mut runs_xml, &default_run, style, fill_color, sz);
+        write_text_run(&mut runs_xml, &default_run, style, fill_color, sz, scale);
     }
 
     let id = ctx.next_id();
@@ -761,8 +781,17 @@ fn write_text_run(
     parent_style: &Style,
     default_color: Color,
     sz: i64,
+    scale: f64,
 ) {
     let cascaded = parent_style.cascade(&run.style);
+    // Mathtext sets each glyph's size on the run itself, and a sub/superscript
+    // run is deliberately smaller than its base. Prefer the run's own size and
+    // fall back to the node-level `sz` only when the run does not carry one.
+    let sz = cascaded
+        .font_size
+        .map(|fs| ((fs * scale) * FONT_PX_TO_HUNDREDTHS_PT).round() as i64)
+        .filter(|v| *v > 0)
+        .unwrap_or(sz);
     let color = match cascaded.effective_fill() {
         Paint::Color(c) => c,
         _ => default_color,
@@ -770,7 +799,12 @@ fn write_text_run(
     let hex = color.hex().unwrap_or("000000");
     let fw = cascaded.font_weight.as_deref().unwrap_or("400");
     let bold = matches!(fw, "bold" | "600" | "700" | "800" | "900");
-    let italic = cascaded.font_style.as_deref() == Some("italic");
+    // Mathtext renders variables with `font-style: oblique` rather than
+    // `italic`; Office has one italic flag for both.
+    let italic = matches!(
+        cascaded.font_style.as_deref(),
+        Some("italic") | Some("oblique")
+    );
     let family = cascaded.font_family.as_deref().unwrap_or("Segoe UI");
     let latin = pick_latin_font(family);
 
@@ -783,11 +817,21 @@ fn write_text_run(
         String::new()
     };
 
+    // DrawingML expresses sub/superscript as a baseline shift in thousandths
+    // of a percent of the font size; these are the values PowerPoint itself
+    // writes for its Subscript/Superscript buttons.
+    let baseline = match run.vert_align {
+        VertAlign::Baseline => "",
+        VertAlign::Subscript => " baseline=\"-25000\"",
+        VertAlign::Superscript => " baseline=\"30000\"",
+    };
+
     write!(out,
-        "<a:r><a:rPr lang=\"en-US\" sz=\"{sz}\"{b}{i} dirty=\"0\"><a:solidFill><a:srgbClr val=\"{hex}\">{alpha_xml}</a:srgbClr></a:solidFill><a:latin typeface=\"{latin}\"/><a:cs typeface=\"{latin}\"/></a:rPr><a:t>{text}</a:t></a:r>",
+        "<a:r><a:rPr lang=\"en-US\" sz=\"{sz}\"{b}{i}{baseline} dirty=\"0\"><a:solidFill><a:srgbClr val=\"{hex}\">{alpha_xml}</a:srgbClr></a:solidFill><a:latin typeface=\"{latin}\"/><a:cs typeface=\"{latin}\"/></a:rPr><a:t>{text}</a:t></a:r>",
         sz = sz,
         b = if bold { " b=\"1\"" } else { "" },
         i = if italic { " i=\"1\"" } else { "" },
+        baseline = baseline,
         hex = hex,
         alpha_xml = alpha_xml,
         latin = xml_escape(latin),

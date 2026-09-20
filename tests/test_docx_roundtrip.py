@@ -50,6 +50,37 @@ GROUP_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
     </g>
 </svg>"""
 
+# What matplotlib's SVG backend emits for the mathtext label `log$_{10}$(PF)`
+# under `svg.fonttype="none"`: one <tspan> per glyph, each absolutely
+# positioned, with the subscript written last but belonging at x=15.3 — after
+# `log` and before `(`. Sub/superscript is expressed only as a smaller
+# font-size at a shifted y; there is no markup for it in SVG.
+MATHTEXT_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+    <g transform="translate(27.4 76.0)">
+        <text>
+            <tspan x="0" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">l</tspan>
+            <tspan x="2.77832" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">o</tspan>
+            <tspan x="8.896484" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">g</tspan>
+            <tspan x="24.520508" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">(</tspan>
+            <tspan x="28.421875" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">P</tspan>
+            <tspan x="34.452148" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">F</tspan>
+            <tspan x="40.204102" y="-0.40625" style="font-size: 10px; font-family: 'DejaVu Sans'">)</tspan>
+            <tspan x="15.339844" y="1.093745" style="font-size: 7px; font-family: 'DejaVu Sans'">1</tspan>
+            <tspan x="19.793457" y="1.093745" style="font-size: 7px; font-family: 'DejaVu Sans'">0</tspan>
+        </text>
+    </g>
+</svg>"""
+
+# The same, for a superscript: `$R^2$` puts the `2` *above* the baseline.
+SUPERSCRIPT_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+    <g transform="translate(20.0 50.0)">
+        <text>
+            <tspan x="0" y="-0.809625" style="font-style: oblique; font-size: 12px; font-family: 'DejaVu Sans'">R</tspan>
+            <tspan x="9.180078" y="-5.765625" style="font-size: 8.4px; font-family: 'DejaVu Sans'">2</tspan>
+        </text>
+    </g>
+</svg>"""
+
 TEXT_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'
     '<text x="10" y="50" font-family="DejaVu Sans" font-size="12" '
@@ -391,8 +422,52 @@ def test_invalid_anchor_options_raise(kwargs, message):
 
 
 # ---------------------------------------------------------------------------
-# Regression test for the blank-box bug in 0.0.6's .docx output.
+# Regression tests for the two bugs found in 0.0.6's .docx output.
 # ---------------------------------------------------------------------------
+
+
+def _txbx_runs(root: etree._Element):
+    """Every text box in the document as a list of `(text, sz, vertAlign)`."""
+    boxes = []
+    for txbx in root.findall(".//wps:txbx", NS):
+        runs = []
+        for w_r in txbx.findall(".//w:r", NS):
+            w_t = w_r.find("w:t", NS)
+            rpr = w_r.find("w:rPr", NS)
+            sz = vert = None
+            if rpr is not None:
+                sz_el = rpr.find("w:sz", NS)
+                if sz_el is not None:
+                    sz = sz_el.get("{%s}val" % NS_W)
+                va_el = rpr.find("w:vertAlign", NS)
+                if va_el is not None:
+                    vert = va_el.get("{%s}val" % NS_W)
+            runs.append((w_t.text if w_t is not None else "", sz, vert))
+        boxes.append(runs)
+    return boxes
+
+
+#: A plain `<text>` carrying the same 10px size the mathtext tspans use, in an
+#: SVG of identical dimensions — so it goes through the same scale factor and
+#: yields the half-point size mathtext should agree with.
+PLAIN_10PX_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">'
+    "<text x=\"10\" y=\"50\" style=\"font-size: 10px; font-family: 'DejaVu Sans'\">"
+    "log</text></svg>"
+)
+
+
+def _plain_text_half_points(artifacts: Path) -> int:
+    """`w:sz` of a 10px plain label drawn at the mathtext fixture's geometry."""
+    doc = Document()
+    svg_to_document(
+        PLAIN_10PX_SVG, doc, width=Inches(2), height=Inches(1), source_dpi=96.0
+    )
+    out_path = artifacts / "plain_10px_reference.docx"
+    doc.save(out_path)
+    root = _document_xml(out_path)
+    rpr = root.findall(".//wps:txbx//w:r", NS)[0].find("w:rPr", NS)
+    return int(rpr.find("w:sz", NS).get("{%s}val" % NS_W))
 
 
 def test_nested_group_is_grpsp_not_wgp(artifacts: Path):
@@ -423,3 +498,99 @@ def test_nested_group_is_grpsp_not_wgp(artifacts: Path):
     assert len(nested.findall(".//wps:wsp", NS)) == 3
 
     _assert_word_structural_rules(root)
+
+
+def test_mathtext_subscript_is_ordered_sized_and_marked(artifacts: Path):
+    """Regression: `log$_{10}$(PF)` arrived as `log(PF)10`, 2x size, no vertAlign.
+
+    Three separate defects, all visible in one label: matplotlib emits one
+    absolutely-positioned `<tspan>` per glyph with the subscript written last,
+    and the parent `<text>` carries no font-size at all.
+    """
+    doc = Document()
+    svg_to_document(MATHTEXT_SVG, doc, width=Inches(2), height=Inches(1), source_dpi=96.0)
+    out_path = artifacts / "mathtext_subscript.docx"
+    doc.save(out_path)
+
+    root = _document_xml(out_path)
+    boxes = [b for b in _txbx_runs(root) if any(t for t, _, _ in b)]
+    assert len(boxes) == 1
+    runs = boxes[0]
+
+    # 1. Reading order, not document order: the subscript belongs after `log`.
+    assert "".join(t for t, _, _ in runs) == "log10(PF)"
+
+    # 2. Glyphs merged back into runs that share formatting.
+    assert len(runs) == 3, "expected log | 10 | (PF), got %r" % (runs,)
+
+    # 3. The subscript is marked as one, and only the subscript is.
+    assert [v for _, _, v in runs] == [None, "subscript", None]
+
+    # 4. Sizes come from the tspans, not from the 16px fallback the styleless
+    #    parent <text> would otherwise hit. The drawing is scaled onto the
+    #    requested box, so assert the ratios the source SVG fixes (10px base,
+    #    7px subscript) rather than absolute half-points.
+    base_sz = {sz for text, sz, vert in runs if vert is None}
+    assert len(base_sz) == 1, "base text should be one size, got %s" % base_sz
+    base = int(base_sz.pop())
+    sub = int(next(sz for _, sz, vert in runs if vert == "subscript"))
+
+    # The styleless-parent fallback is 16px against the tspans' 10px, so the
+    # bug inflated every run by exactly 1.6x. Whatever the drawing's scale
+    # factor, the base must land nearer the 10px reading than the 16px one.
+    plain = _plain_text_half_points(artifacts)
+    assert abs(base - plain) <= 1, (
+        "mathtext base (%d) should match a 10px plain label (%d), not the "
+        "16px fallback (~%d)" % (base, plain, round(plain * 1.6))
+    )
+    assert sub < base, "subscript must stay smaller than its base"
+    assert abs(sub / base - 0.7) < 0.05, (
+        "subscript/base should keep the source 7px/10px ratio, got %d/%d"
+        % (sub, base)
+    )
+
+    _assert_word_structural_rules(root)
+
+
+def test_mathtext_superscript_is_marked_and_italic(artifacts: Path):
+    """`$R^2$`: the script sits *above* the baseline, and `R` is oblique."""
+    doc = Document()
+    svg_to_document(
+        SUPERSCRIPT_SVG, doc, width=Inches(2), height=Inches(1), source_dpi=96.0
+    )
+    out_path = artifacts / "mathtext_superscript.docx"
+    doc.save(out_path)
+
+    root = _document_xml(out_path)
+    boxes = [b for b in _txbx_runs(root) if any(t for t, _, _ in b)]
+    assert len(boxes) == 1
+    runs = boxes[0]
+
+    assert "".join(t for t, _, _ in runs) == "R2"
+    assert [v for _, _, v in runs] == [None, "superscript"]
+
+    # Mathtext writes variables as `font-style: oblique`; Word has one italic
+    # flag covering both.
+    first_rpr = root.findall(".//wps:txbx//w:r", NS)[0].find("w:rPr", NS)
+    assert first_rpr.find("w:i", NS) is not None, "oblique should map to italic"
+
+    _assert_word_structural_rules(root)
+
+
+def test_plain_text_is_unaffected_by_mathtext_normalization(artifacts: Path):
+    """A single-run label must pass through untouched — no merging, no scripts."""
+    doc = Document()
+    svg_to_document(TEXT_SVG, doc, width=Inches(2), height=Inches(1), source_dpi=96.0)
+    out_path = artifacts / "plain_text_unaffected.docx"
+    doc.save(out_path)
+
+    root = _document_xml(out_path)
+    boxes = [b for b in _txbx_runs(root) if any(t for t, _, _ in b)]
+    assert len(boxes) == 1
+    # One run in, one run out — the normalization must not split or merge it.
+    assert len(boxes[0]) == 1
+    text, sz, vert = boxes[0][0]
+    assert text == "Hello Word"
+    assert vert is None
+    assert sz is not None and int(sz) > 0
+    assert not root.findall(".//w:vertAlign", NS)

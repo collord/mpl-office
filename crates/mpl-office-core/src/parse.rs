@@ -14,7 +14,7 @@ use quick_xml::Reader;
 use crate::error::{Error, Result};
 use crate::ir::{
     ClipPath, DefEntry, GradientStop, ImageData, IrDocument, LinearGradient, Node, NodeKind,
-    TextNode, TextRun,
+    TextNode, TextRun, VertAlign,
 };
 use crate::path::parse_and_normalize;
 use crate::style::{parse_length, parse_style_decl, style_from_attrs, Style};
@@ -112,6 +112,7 @@ pub fn parse_svg(xml: &str) -> Result<IrDocument> {
                             style: resolve_node_style(&frame.attrs, &css_rules),
                             x: frame.attrs.get_f64("x"),
                             y: frame.attrs.get_f64("y"),
+                            vert_align: VertAlign::Baseline,
                         });
                     }
                     continue;
@@ -508,6 +509,7 @@ fn build_text_node(frame: &StackFrame, css: &HashMap<String, Style>) -> Result<N
             style: Style::default(),
             x: None,
             y: None,
+            vert_align: VertAlign::Baseline,
         });
     } else if !direct.is_empty() {
         // Mix: keep both — text content was split into tspans inline.
